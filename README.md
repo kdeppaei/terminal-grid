@@ -1,0 +1,56 @@
+# Terminal Grid
+
+在同一個 Windows 主視窗內，使用多個可直接操作的 CMD／PowerShell 終端。適合同時查看 Ping、DNS 查詢、路由追蹤與其他命令列工具。
+
+![Terminal Grid 四格畫面](預覽.png)
+
+- 固定 1–4 列、1–4 欄，最多 16 格，提供四格、六格、九格與十二格配置。
+- 每格獨立的 Shell、工作目錄、名稱與選用啟動指令。
+- 可直接輸入、Ctrl+C 中斷、複製貼上、調整字級與單格放大。
+- 縮小格數後，隱藏終端繼續執行；停止工作階段後保留既有畫面。
+- 配置儲存與 JSON 匯入／匯出；開啟工具、載入或匯入配置不會自動執行指令。
+
+## 下載與使用
+
+1. 從 [Releases](https://github.com/kdeppaei/terminal-grid/releases/latest) 下載 Windows x64 ZIP。
+2. 完整解壓縮，保留 DLL 與 `ui` 資料夾。
+3. 執行 `TerminalGridIntegrated.exe`，選擇格數並按各格的「啟動」。
+
+一般網路測試可使用標準使用者權限。本工具沒有安裝程式；需要 Windows 10 1809 以上的 64 位元 Windows、.NET Framework 4.8 及已安裝的 WebView2 Runtime。PowerShell 7 為選用元件。
+
+關閉主程式時，若仍有工作階段會先提示；確認後會結束本工具建立的終端與子程序。此版本建立新的內建工作階段，無法接管既有的外部終端視窗。
+
+[完整操作說明](使用說明.md) · [四格網路測試範例](examples/四格網路測試.json) · [驗證紀錄](驗證紀錄.md)
+
+## 公司環境與權限
+
+MIT 允許企業使用、修改與散布本專案的原始程式碼；使用或散布時請保留授權文字。公司是否核准公開原始碼、下載與執行此工具，仍依公司的智慧財產、軟體、端點及權限管理規範判定。此專案沒有公司 PIM 合規認證。
+
+- 程式 manifest 使用 `asInvoker`，沒有內建提權或 PIM 角色啟用功能。Shell 繼承啟動者的 Windows 權限；若從已提升權限的環境啟動，子程序也可能具有相同權限。
+- 本專案自行撰寫的介面程式沒有遙測、更新服務或監聽網路連接埠。終端由使用者執行的命令可存取網路；WebView2 Runtime 仍有其自身的系統元件行為。
+- 發布的 EXE 目前沒有 Authenticode 簽章。公司需要程式簽章或允許清單時，請依公司流程辦理；MIT 授權不會取代這些要求。
+- 配置與選用的 CMD 啟動指令檔存放在 `%LOCALAPPDATA%\TerminalGridIntegrated`。終端畫面不會由本工具自動寫入紀錄檔；Shell 自身及使用者命令可能另有歷史或紀錄。
+- PowerShell 的選用啟動指令以 `-EncodedCommand` 傳入，僅為保留中文與引號；沒有加入 `-ExecutionPolicy Bypass`。是否允許此命令形式仍依公司端點政策。
+
+## 從原始碼建置
+
+在允許執行 PowerShell 建置腳本的 Windows 環境中：
+
+```powershell
+.\Build.ps1
+```
+
+使用本機 .NET Framework C# 編譯器及本倉庫隨附的 WebView2 SDK DLL；建置不會下載套件。PowerShell 執行政策若禁止腳本，請使用公司核准的建置環境。
+
+```powershell
+.\Test.ps1 -ConfigOnly  # 配置模型測試，不啟動終端
+.\Test.ps1              # 配置與本機終端互動測試
+.\Test.ps1 -Stress      # 加跑每輪 16 格的並行測試
+.\Package.ps1           # 建置並產生 ZIP 與 SHA-256 校驗檔
+```
+
+測試說明位於 [tests/README.md](tests/README.md)。GitHub Actions 會在 Windows runner 上建置、執行測試及建立下載產物。
+
+## 授權
+
+本專案自行撰寫的程式碼以 [MIT License](LICENSE) 提供。第三方元件維持各自原有授權，請參閱 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 與 `licenses/`。WebView2 Runtime 為獨立系統相依元件。

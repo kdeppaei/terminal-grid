@@ -1,0 +1,35 @@
+name: Windows build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build application
+        shell: pwsh
+        run: ./Build.ps1
+      - name: Test configuration and local terminals
+        shell: pwsh
+        run: ./Test.ps1
+      - name: Package Windows release
+        shell: pwsh
+        run: ./Package.ps1 -SkipBuild
+      - name: Upload ZIP and SHA-256
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: TerminalGrid-Windows-x64
+          path: |
+            .release/*.zip
+            .release/*.sha256
+          if-no-files-found: error
+          retention-days: 14

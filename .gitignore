@@ -1,0 +1,23 @@
+# Built application and release artifacts
+TerminalGridIntegrated.exe
+.release/
+.test-work/
+*.pdb
+*.zip
+*.tmp
+*.log
+
+# Local terminal configuration and runtime data
+layout.json
+startup/
+WebView2/
+test-profile/
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.vs/
+.idea/
+Thumbs.db
+Desktop.ini

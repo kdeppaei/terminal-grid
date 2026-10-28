@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "rows": 2,
+  "cols": 2,
+  "fontSize": 13,
+  "slots": [
+    { "name": "本機回送", "shell": "CMD", "command": "ping -t 127.0.0.1", "cwd": "", "exe": "", "args": "" },
+    { "name": "對外連線", "shell": "CMD", "command": "ping -t 1.1.1.1", "cwd": "", "exe": "", "args": "" },
+    { "name": "DNS 查詢", "shell": "CMD", "command": "nslookup example.com", "cwd": "", "exe": "", "args": "" },
+    { "name": "路徑追蹤", "shell": "CMD", "command": "tracert example.com", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 5", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 6", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 7", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 8", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 9", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 10", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 11", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 12", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 13", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 14", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 15", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" },
+    { "name": "終端 16", "shell": "CMD", "command": "", "cwd": "", "exe": "", "args": "" }
+  ]
+}
