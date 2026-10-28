@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("2.1.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -35,7 +35,7 @@ namespace TerminalGridIntegrated
         readonly WebView2 browser;
         readonly System.Windows.Forms.Timer outputTimer;
         LayoutConfig config;
-        bool closing, closeApproved, ready;
+        bool closing, closeApproved, ready, folderPickerOpen;
         string loadWarning = "";
 
         public TerminalForm()
@@ -139,7 +139,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "2.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "2.1", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -154,6 +154,11 @@ namespace TerminalGridIntegrated
                 if (type == "import") { Ui(ImportConfig); return; }
                 int index = IntValue(message, "slot", -1);
                 if (index < 0 || index >= 16) return;
+                if (type == "pickFolder")
+                {
+                    QueueFolderPicker(index, StringValue(message, "requestId"), StringValue(message, "initialPath"));
+                    return;
+                }
                 PaneState pane = panes[index];
                 if (!ValidGeneration(message, pane)) return;
                 if (type == "start" || type == "restart")
@@ -182,6 +187,35 @@ namespace TerminalGridIntegrated
                 else if (type == "stop") StopSlot(index);
             }
             catch (Exception ex) { Status("操作未完成：" + ex.Message); }
+        }
+        void QueueFolderPicker(int slot, string requestId, string initialPath)
+        {
+            if (String.IsNullOrEmpty(requestId) || requestId.Length > 128)
+            {
+                Send(new { type = "folderPickError", slot = slot, requestId = requestId, message = "選擇資料夾請求無效，請重新開啟設定。" });
+                return;
+            }
+            if (folderPickerOpen)
+            {
+                Send(new { type = "folderPickError", slot = slot, requestId = requestId, message = "請先完成目前的資料夾選擇。" });
+                return;
+            }
+            folderPickerOpen = true;
+            // WebView2 callbacks must return before entering a modal message loop.
+            // Ui uses BeginInvoke so the owned STA dialog opens on a later UI turn.
+            Ui(delegate
+            {
+                try
+                {
+                    string path = FolderPicker.Pick(this, initialPath);
+                    Send(new { type = "folderPicked", slot = slot, requestId = requestId, path = path ?? "", cancelled = path == null });
+                }
+                catch (Exception ex)
+                {
+                    Send(new { type = "folderPickError", slot = slot, requestId = requestId, message = "無法選擇工作資料夾：" + ex.Message });
+                }
+                finally { folderPickerOpen = false; }
+            });
         }
         static int Clamp(int value, int minimum, int maximum) { return Math.Max(minimum, Math.Min(maximum, value)); }
         async void StartSlot(int index, PaneConfig paneConfig, int cols, int rows)
@@ -314,7 +348,7 @@ namespace TerminalGridIntegrated
         {
             if (closeApproved) return;
             e.Cancel = true;
-            if (closing) return;
+            if (closing || folderPickerOpen) return;
             int count = panes.Count(p => p.Session != null || p.Starting);
             if (count > 0 && MessageBox.Show(this, "目前有 " + count + " 個內建終端工作階段。關閉主程式會一併結束這些終端與測試。\n\n確定關閉？", "關閉整合終端", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             closing = true; outputTimer.Stop(); Enabled = false;

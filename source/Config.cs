@@ -102,7 +102,11 @@ namespace TerminalGridIntegrated
         public static ShellCommand Build(PaneConfig pane)
         {
             ShellCommand result = new ShellCommand();
-            result.Directory = String.IsNullOrWhiteSpace(pane.cwd) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : Environment.ExpandEnvironmentVariables(pane.cwd.Trim());
+            string selectedDirectory = pane.cwd ?? "";
+            // A folder selected from Windows may literally contain %NAME%.
+            // Prefer the existing path before expanding manually typed environment variables.
+            result.Directory = String.IsNullOrWhiteSpace(selectedDirectory) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) :
+                Directory.Exists(selectedDirectory) ? Path.GetFullPath(selectedDirectory) : Environment.ExpandEnvironmentVariables(selectedDirectory.Trim());
             if (!Directory.Exists(result.Directory)) throw new DirectoryNotFoundException("工作目錄不存在：" + result.Directory);
             if (pane.shell == "CMD")
             {

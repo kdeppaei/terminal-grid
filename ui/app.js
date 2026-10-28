@@ -11,6 +11,9 @@
   var zoomedSlot = null;
   var focusedSlot = null;
   var settingsSlot = null;
+  var settingsSession = 0;
+  var folderRequestSequence = 0;
+  var pendingFolderRequest = null;
   var saveTimer = null;
   var fitFrame = null;
   var toastTimer = null;
@@ -79,7 +82,7 @@
     element.dataset.slot = index;
     element.dataset.status = 'idle';
     element.setAttribute('aria-label', '第 ' + (index + 1) + ' 格終端');
-    element.innerHTML = '<header class="pane-header"><div class="pane-title-row"><span class="slot-number">' + String(index + 1).padStart(2, '0') + '</span><span class="state-dot" aria-hidden="true"></span><h2 class="pane-name"></h2><div class="pane-controls"><button class="icon-button" data-action="configure" title="終端設定" aria-label="終端設定">⚙</button><button class="icon-button" data-action="zoom" title="放大終端" aria-label="放大終端">⛶</button><button class="icon-button close-button" data-action="stop" title="結束終端" aria-label="結束終端">×</button></div></div><div class="pane-toolbar"><select class="pane-shell" aria-label="終端類型"><option value="CMD">CMD</option><option value="PowerShell">PowerShell</option><option value="PowerShell 7">PowerShell 7</option><option value="Custom">自訂程式</option></select><span class="pane-state"></span><button class="icon-button pane-restart" data-action="restart" title="重新啟動終端" aria-label="重新啟動終端">↻</button><button class="button pane-start" data-action="start">啟動</button></div></header><div class="terminal-container"><div class="terminal-mount"></div><div class="pane-empty"><span class="empty-symbol" aria-hidden="true">&gt;_</span><p class="empty-name"></p><p class="empty-command"></p><button class="button empty-start" data-action="start">啟動終端</button></div><div class="exit-notice" hidden></div></div>';
+    element.innerHTML = '<header class="pane-header"><div class="pane-title-row"><span class="slot-number">' + String(index + 1).padStart(2, '0') + '</span><span class="state-dot" aria-hidden="true"></span><h2 class="pane-name"></h2><div class="pane-controls"><button class="icon-button" data-action="configure" title="終端設定" aria-label="終端設定">⚙</button><button class="icon-button" data-action="zoom" title="放大終端" aria-label="放大終端">⛶</button><button class="icon-button close-button" data-action="stop" title="結束終端" aria-label="結束終端">×</button></div></div><div class="pane-toolbar"><select class="pane-shell" aria-label="終端類型"><option value="CMD">CMD</option><option value="PowerShell">PowerShell</option><option value="PowerShell 7">PowerShell 7</option><option value="Custom">自訂程式</option></select><span class="pane-state"></span><button class="icon-button pane-restart" data-action="restart" title="重新啟動終端" aria-label="重新啟動終端">↻</button><button class="button pane-start" data-action="start">啟動</button></div><div class="pane-directory"><button type="button" class="pane-folder" data-action="folder"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 5V3.5h5l1.5 2h6.5v7h-13V5Z" stroke="currentColor" stroke-linejoin="round"/></svg><span class="pane-folder-label">從資料夾啟動</span></button><span class="pane-folder-path"></span></div></header><div class="terminal-container"><div class="terminal-mount"></div><div class="pane-empty"><span class="empty-symbol" aria-hidden="true">&gt;_</span><p class="empty-name"></p><p class="empty-command"></p><button class="button empty-start" data-action="start">啟動終端</button></div><div class="exit-notice" hidden></div></div>';
     grid.appendChild(element);
     var terminal = new window.Terminal({
       cursorBlink: true, cursorStyle: 'bar', fontFamily: '"Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace',
@@ -125,6 +128,7 @@
       if (action === 'start') startSlot(index, false);
       if (action === 'stop') requestStop(index);
       if (action === 'restart') requestRestart(index);
+      if (action === 'folder') choosePaneFolder(index);
     });
     element.querySelector('.pane-shell').addEventListener('change', function (event) {
       config.slots[index].shell = event.target.value;
@@ -165,6 +169,15 @@
     element.querySelector('.pane-state').title = description;
     element.querySelector('[data-action="stop"]').disabled = !hostReady || state.status !== 'running';
     element.querySelector('[data-action="restart"]').disabled = !hostReady || isBusy(state);
+    var folderButton = element.querySelector('[data-action="folder"]');
+    var folderAction = isActive(state) ? '設定下次啟動資料夾' : '從資料夾啟動';
+    folderButton.disabled = !hostReady || isBusy(state) || pendingFolderRequest !== null;
+    folderButton.title = folderAction + (isActive(state) ? '；不會切換目前終端或中斷測試' : '；選取後立即啟動此格');
+    folderButton.setAttribute('aria-label', folderButton.title);
+    element.querySelector('.pane-folder-label').textContent = isActive(state) ? '下次啟動資料夾' : folderAction;
+    var folderPath = element.querySelector('.pane-folder-path');
+    folderPath.textContent = '啟動資料夾：' + (setting.cwd || '預設工作目錄');
+    folderPath.title = folderPath.textContent + (isActive(state) ? '\n此設定在下次啟動時生效；目前終端可自行切換資料夾。' : '\n此格下次啟動時使用的資料夾。');
     var starts = element.querySelectorAll('[data-action="start"]');
     for (var i = 0; i < starts.length; i++) starts[i].disabled = !hostReady || isActive(state);
     element.querySelector('.pane-start').textContent = state.status === 'starting' ? '啟動中' : state.status === 'stopping' ? '結束中' : '啟動';
@@ -277,8 +290,70 @@
     });
   }
 
+  function refreshFolderControls() {
+    renderAllPanes();
+    $('settingBrowse').disabled = !hostReady || pendingFolderRequest !== null;
+  }
+  function invalidateFolderRequests() {
+    // Keep the modal lock until its matching response arrives, but discard its result.
+    if (pendingFolderRequest) pendingFolderRequest.valid = false;
+  }
+  function choosePaneFolder(slot) {
+    if (!hostReady || pendingFolderRequest || isBusy(panes[slot])) return;
+    requestFolder(slot, 'pane', config.slots[slot].cwd, !isActive(panes[slot]));
+  }
+  function requestFolder(slot, purpose, initialPath, autoStart) {
+    if (!hostReady || pendingFolderRequest) return;
+    var requestId = 'folder-' + (++folderRequestSequence) + '-' + Date.now();
+    pendingFolderRequest = { requestId: requestId, slot: slot, purpose: purpose, autoStart: !!autoStart, settingsSession: settingsSession, valid: true };
+    refreshFolderControls();
+    if (!send({ type: 'pickFolder', slot: slot, requestId: requestId, initialPath: initialPath || '' })) {
+      pendingFolderRequest = null;
+      refreshFolderControls();
+    }
+  }
+  function handleFolderResult(message) {
+    var request = pendingFolderRequest;
+    if (!request || message.requestId !== request.requestId || message.slot !== request.slot) return;
+    pendingFolderRequest = null;
+    refreshFolderControls();
+    if (!request.valid) return;
+    if (request.purpose === 'settings' && (request.settingsSession !== settingsSession || settingsSlot !== request.slot || !$('settingsDialog').open)) return;
+    if (message.type === 'folderPickError') {
+      showToast('無法選擇資料夾：' + (message.message || '請稍後重試，或手動輸入路徑。'), true);
+      return;
+    }
+    if (message.cancelled === true) return;
+    if (typeof message.path !== 'string' || !message.path.trim() || message.path.length > 4096) {
+      showToast('未取得有效的資料夾路徑，請重新選擇。', true);
+      return;
+    }
+    if (request.purpose === 'settings') {
+      $('settingCwd').value = message.path;
+      $('settingCwd').focus();
+      showToast('已選擇啟動資料夾，按「儲存設定」後生效。');
+      return;
+    }
+    config.slots[request.slot].cwd = message.path;
+    renderPane(request.slot);
+    saveConfig(false);
+    if (request.autoStart && !isActive(panes[request.slot])) {
+      startSlot(request.slot, false);
+    } else {
+      showToast('已設定「' + slotLabel(request.slot) + '」下次啟動的資料夾。' + (isActive(panes[request.slot]) ? '目前終端與測試繼續執行。' : '按「啟動」使用。'));
+    }
+  }
+  function closeSettings() {
+    if (pendingFolderRequest && pendingFolderRequest.purpose === 'settings') pendingFolderRequest.valid = false;
+    settingsSession++;
+    settingsSlot = null;
+    $('settingExe').setCustomValidity('');
+    $('settingsDialog').close();
+  }
+
   function openSettings(slot) {
     if ($('settingsDialog').open || $('confirmDialog').open) return;
+    settingsSession++;
     settingsSlot = slot;
     var setting = config.slots[slot];
     $('settingsTitle').textContent = '第 ' + String(slot + 1).padStart(2, '0') + ' 格 · 終端設定';
@@ -286,6 +361,7 @@
     $('settingCwd').value = setting.cwd; $('settingExe').value = setting.exe;
     $('settingArgs').value = setting.args; $('settingCommand').value = setting.command;
     $('settingShell').querySelector('option[value="PowerShell 7"]').disabled = !capabilities.pwsh && setting.shell !== 'PowerShell 7';
+    $('settingBrowse').disabled = !hostReady || pendingFolderRequest !== null;
     updateCustomFields(); $('settingsDialog').showModal();
     $('settingName').focus(); $('settingName').select();
   }
@@ -347,7 +423,9 @@
   }
   function handleHostMessage(message) {
     if (!message || typeof message !== 'object' || typeof message.type !== 'string') return;
+    if (message.type === 'folderPicked' || message.type === 'folderPickError') { handleFolderResult(message); return; }
     if (message.type === 'init') {
+      invalidateFolderRequests();
       config = normalizeConfig(message.config);
       capabilities = Object.assign({ pwsh: false }, message.capabilities || {});
       hostReady = true;
@@ -355,12 +433,14 @@
       $('connectionText').textContent = '終端引擎已就緒';
       $('connectionText').title = message.version ? 'Terminal Grid ' + message.version + ' · Windows ConPTY' : 'Windows ConPTY';
       $('saveButton').disabled = false; $('exportButton').disabled = false; $('importButton').disabled = false;
-      applyLayout(); renderAllPanes(); setStatus('點選「啟動」開始；每格都有獨立的輸入與輸出。');
+      applyLayout(); refreshFolderControls(); setStatus('點選「啟動」開始，或按每格「從資料夾啟動」選取本機資料夾。');
       return;
     }
     if (message.type === 'imported') {
+      invalidateFolderRequests();
+      if ($('settingsDialog').open) closeSettings();
       config = normalizeConfig(message.config);
-      applyLayout(); renderAllPanes();
+      applyLayout(); refreshFolderControls();
       showToast('已匯入配置。現有終端繼續執行；新設定在下次啟動時生效。');
       return;
     }
@@ -452,11 +532,14 @@
     $('unzoomButton').addEventListener('click', function () { zoomedSlot = null; applyLayout(); });
     $('saveButton').addEventListener('click', function () { saveConfig(true); });
     $('exportButton').addEventListener('click', function () { if (hostReady) send({ type: 'export', config: config }); });
-    $('importButton').addEventListener('click', function () { if (hostReady) send({ type: 'import' }); });
+    $('importButton').addEventListener('click', function () { if (hostReady) { invalidateFolderRequests(); send({ type: 'import' }); } });
     $('helpButton').addEventListener('click', function () { $('helpDialog').showModal(); });
     $('copyButton').addEventListener('click', function () { if (focusedSlot !== null) copySelection(focusedSlot); });
     $('pasteButton').addEventListener('click', function () { if (focusedSlot !== null) pasteClipboard(focusedSlot); });
     $('settingShell').addEventListener('change', updateCustomFields);
+    $('settingBrowse').addEventListener('click', function () {
+      if (settingsSlot !== null && $('settingsDialog').open) requestFolder(settingsSlot, 'settings', $('settingCwd').value, false);
+    });
     $('settingsForm').addEventListener('submit', function (event) {
       event.preventDefault();
       if (settingsSlot === null) return;
@@ -465,12 +548,18 @@
       }
       var slot = settingsSlot;
       config.slots[slot] = { name: $('settingName').value.trim() || defaultSlot(slot).name, shell: $('settingShell').value, cwd: $('settingCwd').value.trim(), command: $('settingCommand').value, exe: $('settingExe').value.trim(), args: $('settingArgs').value };
-      $('settingsDialog').close(); renderPane(slot); queueSave();
+      closeSettings(); renderPane(slot); queueSave();
       showToast('已儲存「' + slotLabel(slot) + '」設定' + (isActive(panes[slot]) ? '，下次啟動時生效。' : '。按「啟動」執行。'));
     });
     $('settingExe').addEventListener('input', function () { this.setCustomValidity(''); });
-    $('settingsDialog').addEventListener('close', function () { settingsSlot = null; $('settingExe').setCustomValidity(''); });
-    document.querySelectorAll('[data-close]').forEach(function (button) { button.addEventListener('click', function () { $(button.dataset.close).close(); }); });
+    $('settingsDialog').addEventListener('cancel', function (event) { event.preventDefault(); closeSettings(); });
+    $('settingsDialog').addEventListener('close', function () {
+      if (!$('settingsDialog').open && settingsSlot !== null) closeSettings();
+    });
+    document.querySelectorAll('[data-close]').forEach(function (button) { button.addEventListener('click', function () {
+      if (button.dataset.close === 'settingsDialog') closeSettings();
+      else $(button.dataset.close).close();
+    }); });
     $('confirmAccept').addEventListener('click', function () { finishConfirmation(true); });
     $('confirmCancel').addEventListener('click', function () { finishConfirmation(false); });
     $('confirmDialog').addEventListener('cancel', function (event) { event.preventDefault(); finishConfirmation(false); });
