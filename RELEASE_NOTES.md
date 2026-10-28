@@ -1,27 +1,24 @@
-# Terminal Grid 3.0.1
+# Terminal Grid 3.1.0
 
-3.0.1 fixes the local update script so it continues when the previous app exits immediately after the user confirms closing it. It still never force-terminates a running process.
+3.1.0 makes workspace, command-pack, and automation editing easier to manage. Automation flows can pause for a person to finish a task and continue only after the user chooses Continue.
 
-Terminal Grid 3.0 adds named workspaces, stacked terminal tabs in each grid cell, reusable automation flows, and portable command packs.
-
-- Create up to 12 named workspaces. Each workspace keeps its own 1–4 by 1–4 layout.
-- Add up to 8 terminal tabs inside any cell. Switching tabs stays inside that cell; sessions keep running when hidden.
-- Build ordered flows from start, send command, wait, and stop steps, targeting a specific cell and terminal tab. Review the full target and command list before each run.
-- Save and share automation as .tgridflow files. Imported flows create a separate workspace and do not execute until the user runs them.
-- Manage command snippets in local packs and import/export .tgridcmd files. Right-click, click Insert, or drag a snippet into a running terminal; insertion never presses Enter.
-- Keep existing folder-based startup, custom shell settings, copy/paste, and 1–16 cell layouts.
-- Upgrade prior JSON layout files automatically. Configuration remains local under %LOCALAPPDATA%\TerminalGridIntegrated.
+- Add, rename, duplicate, and delete workspaces with in-app dialogs. Duplicated workspaces retain layout and terminal settings; their terminals do not start automatically.
+- Add, edit, delete, rename, and duplicate command packs and snippets without browser prompt dialogs.
+- Drag multiple `.tgridflow` and `.tgridcmd` files onto the application to import them. Imported flows still require review and an explicit run action.
+- Add an automation step that pauses with a user-written instruction. Continue resumes later steps; Stop Flow cancels the remaining automation without closing running terminals.
+- Preserve the existing command insertion safety behavior: inserting or dragging a snippet fills the terminal but does not press Enter.
+- Document the scrcpy same-cell integration architecture and its test requirements. This release does not embed scrcpy windows; live-device validation remains outstanding because scrcpy and ADB were unavailable in the development environment.
 
 ## Download and update
 
-Download the Windows x64 ZIP from the GitHub Releases page, extract all files to a folder, and run TerminalGridIntegrated.exe. Keep the WebView2 DLLs and ui folder beside the executable.
+Download the Windows x64 ZIP from the GitHub Releases page, extract all files to a folder, and run `TerminalGridIntegrated.exe`. Keep the WebView2 DLLs and `ui` folder beside the executable.
 
-For this working copy, UpdateAndLaunch.ps1 builds the new version to a staging path, asks the previous process to close, replaces the executable, and starts the new version. It does not force-terminate the old process; if an active terminal prompts for confirmation, confirm in the app so the update can continue.
+For this working copy, `UpdateAndLaunch.ps1` builds the new version to a staging path, asks the previous process to close, replaces the executable, and starts the new version. It does not force-terminate the old process; if an active terminal prompts for confirmation, confirm in the app so the update can continue.
 
-Requires 64-bit Windows 10 1809 or later, .NET Framework 4.8, and Microsoft Edge WebView2 Runtime. The .sha256 file contains the release ZIP checksum.
+Requires 64-bit Windows 10 1809 or later, .NET Framework 4.8, and Microsoft Edge WebView2 Runtime. The `.sha256` file contains the release ZIP checksum.
 
 ## License and company environment
 
 The project-authored source is provided under the MIT License; third-party components retain their own licenses and notices. The executable is not Authenticode-signed. Public availability and MIT licensing do not constitute internal security approval. The application does not elevate privileges; child shells inherit the permissions of the launching user. Follow company software and endpoint approval requirements before use.
 
-Closing the main window ends the integrated terminal sessions and their child processes after confirmation. The application does not attach to pre-existing CMD, PowerShell, Windows Terminal, ADB, or scrcpy windows; start commands in a managed terminal tab when you need that tab's output and input.
+Closing the main window ends the integrated terminal sessions and their child processes after confirmation. The application does not attach to pre-existing CMD, PowerShell, Windows Terminal, ADB, or scrcpy windows.

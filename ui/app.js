@@ -7,6 +7,7 @@
   var activeView = null, focused = null, settingsRef = null, settingsSession = 0;
   var pendingFolderRequest = null, folderRequestSequence = 0, saveTimer = null, fitFrame = null;
   var toastTimer = null, confirmation = null, currentFlowId = null, flowRunning = false;
+  var workspaceEditingId = null, packEditingId = null, commandEditingRef = null, flowPauseResolve = null;
   var $ = function (id) { return document.getElementById(id); };
   var workspaceHost = $('workspaceHost');
 
@@ -71,7 +72,7 @@
         workspaceId: str(f.workspaceId, 64) || activeId,
         steps: (Array.isArray(f.steps) ? f.steps : []).slice(0, 100).map(function (step) {
           step = step || {};
-          return { action: ['start', 'send', 'wait', 'stop'].indexOf(step.action) >= 0 ? step.action : 'send',
+          return { action: ['start', 'send', 'wait', 'pause', 'stop'].indexOf(step.action) >= 0 ? step.action : 'send',
             slot: limitNumber(step.slot, 0, 0, 15), tabId: str(step.tabId, 64), text: str(step.text, 16000),
             delayMs: limitNumber(step.delayMs, 500, 100, 30000), enter: step.enter !== false };
         }) };
@@ -244,17 +245,35 @@
     appConfig.workspaces.forEach(function (workspace) {
       var button = document.createElement('button'); button.type = 'button'; button.className = 'workspace-tab';
       button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(activeView && activeView.config.id === workspace.id));
-      button.textContent = workspace.name; button.title = '左鍵切換；右鍵重新命名或刪除'; button.dataset.workspaceId = workspace.id;
+      button.textContent = workspace.name; button.title = '左鍵切換；右鍵編輯或刪除'; button.dataset.workspaceId = workspace.id;
       button.addEventListener('click', function () { activateWorkspace(workspace.id); });
-      button.addEventListener('contextmenu', function (event) {
-        event.preventDefault(); var action = window.prompt('工作區「' + workspace.name + '」\n輸入新名稱，或輸入 DELETE 刪除：', workspace.name);
-        if (action === null) return;
-        if (action.trim().toUpperCase() === 'DELETE') { deleteWorkspace(workspace.id); return; }
-        if (action.trim()) { workspace.name = action.trim().slice(0, 48); renderWorkspaces(); queueSave(); }
-      });
+      button.addEventListener('contextmenu', function (event) { event.preventDefault(); openWorkspaceDialog(workspace.id); });
       strip.appendChild(button);
     });
     $('addWorkspaceButton').disabled = appConfig.workspaces.length >= 12;
+  }
+  function openWorkspaceDialog(id) {
+    var workspace = id ? getWorkspace(id) : null;
+    workspaceEditingId = workspace ? workspace.id : null;
+    $('workspaceDialogTitle').textContent = workspace ? '工作區設定' : '新增工作區';
+    $('workspaceNameInput').value = workspace ? workspace.name : '工作區 ' + String(appConfig.workspaces.length + 1);
+    $('deleteWorkspaceButton').hidden = !workspace || appConfig.workspaces.length < 2;
+    $('duplicateWorkspaceButton').hidden = !workspace || appConfig.workspaces.length >= 12;
+    $('workspaceDialog').showModal(); $('workspaceNameInput').focus(); $('workspaceNameInput').select();
+  }
+  function saveWorkspaceDialog(event) {
+    event.preventDefault();
+    var name = $('workspaceNameInput').value.trim();
+    if (!name) { $('workspaceNameInput').focus(); return; }
+    if (workspaceEditingId) {
+      var existing = getWorkspace(workspaceEditingId), view = getView(workspaceEditingId);
+      if (!existing) { $('workspaceDialog').close(); return; }
+      existing.name = name.slice(0, 48); if (view) view.grid.setAttribute('aria-label', existing.name + ' 終端網格');
+      $('workspaceDialog').close(); renderWorkspaces(); queueSave(); showToast('工作區名稱已更新。'); return;
+    }
+    if (appConfig.workspaces.length >= 12) { $('workspaceDialog').close(); showToast('最多可建立 12 個工作區。', true); return; }
+    var created = defaultWorkspace(appConfig.workspaces.length); created.name = name.slice(0, 48);
+    appConfig.workspaces.push(created); createView(created); $('workspaceDialog').close(); activateWorkspace(created.id); saveConfig(false);
   }
   function activateWorkspace(id) {
     var view = getView(id); if (!view) return;
@@ -264,10 +283,7 @@
   }
   function addWorkspace() {
     if (appConfig.workspaces.length >= 12) { showToast('最多可建立 12 個工作區。', true); return; }
-    var name = window.prompt('新工作區名稱：', '工作區 ' + (appConfig.workspaces.length + 1));
-    if (name === null) return;
-    var workspace = defaultWorkspace(appConfig.workspaces.length); workspace.name = name.trim().slice(0, 48) || workspace.name;
-    appConfig.workspaces.push(workspace); createView(workspace); activateWorkspace(workspace.id); saveConfig(false);
+    openWorkspaceDialog(null);
   }
   function deleteWorkspace(id) {
     if (appConfig.workspaces.length < 2) { showToast('至少需要保留一個工作區。'); return; }
@@ -283,6 +299,18 @@
       appConfig.automations = appConfig.automations.filter(function (f) { return f.workspaceId !== id; });
       activateWorkspace(appConfig.workspaces[0].id); queueSave();
     });
+  }
+  function duplicateWorkspace(id) {
+    var source = getWorkspace(id); if (!source) return;
+    if (appConfig.workspaces.length >= 12) { showToast('最多可建立 12 個工作區。', true); return; }
+    var copy = JSON.parse(JSON.stringify(source)); copy.id = uid('workspace'); copy.name = (source.name + ' 副本').slice(0, 48);
+    copy.slots.forEach(function (cell, slot) {
+      var activeIndex = Math.max(0, cell.tabs.findIndex(function (tab) { return tab.id === cell.activeTabId; }));
+      cell.tabs.forEach(function (tab, index) { tab.id = uid('tab'); if (!tab.name) tab.name = '終端 ' + String(index + 1); });
+      cell.activeTabId = cell.tabs[activeIndex] ? cell.tabs[activeIndex].id : cell.tabs[0].id;
+    });
+    appConfig.workspaces.push(copy); createView(copy); renderWorkspaces(); activateWorkspace(copy.id); saveConfig(false);
+    showToast('工作區已複製；新的終端不會自動啟動。');
   }
   function addTerminalTab(view, slot) {
     var cell = view.panes[slot];
@@ -635,29 +663,33 @@
     var flow = currentFlow(), stepsHost = $('flowSteps');
     if (!stepsHost) return;
     stepsHost.textContent = '';
-    $('flowName').disabled = !flow; $('flowName').value = flow ? flow.name : '';
+    $('flowName').disabled = !flow || flowRunning; $('flowName').value = flow ? flow.name : '';
+    $('flowSelect').disabled = flowRunning;
     $('flowWorkspaceLabel').textContent = flow && flowWorkspace(flow) ? '目標工作區：' + flowWorkspace(flow).name : '';
     $('addFlowStepButton').disabled = !flow || flowRunning; $('runFlowButton').disabled = !flow || !flow.steps.length || flowRunning;
-    $('saveFlowFileButton').disabled = !flow; $('deleteFlowButton').disabled = !flow || flowRunning;
+    $('saveFlowFileButton').disabled = !flow || flowRunning; $('deleteFlowButton').disabled = !flow || flowRunning;
     if (!flow) { stepsHost.innerHTML = '<p class="help-note">新增流程，逐步安排啟動、輸入指令、等待或結束終端。</p>'; return; }
     var workspace = flowWorkspace(flow);
     if (!workspace) { stepsHost.textContent = '找不到此流程的工作區。'; return; }
     flow.steps.forEach(function (step, index) {
       var row = document.createElement('div'); row.className = 'flow-step';
       var action = document.createElement('select');
-      [['start', '啟動終端'], ['send', '輸入指令'], ['wait', '等待'], ['stop', '結束終端']].forEach(function (item) { var o = new Option(item[1], item[0]); action.add(o); });
+      [['start', '啟動終端'], ['send', '輸入指令'], ['wait', '等待時間'], ['pause', '等待操作後繼續'], ['stop', '結束終端']].forEach(function (item) { var o = new Option(item[1], item[0]); action.add(o); });
       action.value = step.action;
-      var slot = document.createElement('select'); slot.className = 'flow-slot';
+      var slot = document.createElement('select'); slot.className = 'flow-slot flow-target';
       for (var i = 0; i < MAX_SLOTS; i++) slot.add(new Option(String(i + 1).padStart(2, '0') + ' 格', String(i)));
       slot.value = String(step.slot);
-      var tab = document.createElement('select'); tab.className = 'flow-tab'; fillFlowTabs(tab, workspace, step.slot, step.tabId);
-      var textInput = document.createElement('input'); textInput.className = 'flow-step-text'; textInput.value = step.action === 'wait' ? String(step.delayMs) : (step.text || ''); textInput.placeholder = step.action === 'wait' ? '等待毫秒（100–30000）' : '指令內容';
+      var tab = document.createElement('select'); tab.className = 'flow-tab flow-target'; fillFlowTabs(tab, workspace, step.slot, step.tabId);
+      var textInput = document.createElement('input'); textInput.className = 'flow-step-text'; textInput.value = step.action === 'wait' ? String(step.delayMs) : (step.text || ''); textInput.placeholder = step.action === 'wait' ? '毫秒（100–30000）' : step.action === 'pause' ? '提示使用者要完成的操作' : '指令內容';
       var enterLabel = document.createElement('label'); enterLabel.className = 'flow-enter'; var enter = document.createElement('input'); enter.type = 'checkbox'; enter.checked = step.enter !== false; enterLabel.append(enter, document.createTextNode('Enter'));
       var moveUp = document.createElement('button'); moveUp.type = 'button'; moveUp.className = 'icon-button flow-move'; moveUp.textContent = '↑'; moveUp.title = '上移步驟'; moveUp.disabled = index === 0;
       var moveDown = document.createElement('button'); moveDown.type = 'button'; moveDown.className = 'icon-button flow-move'; moveDown.textContent = '↓'; moveDown.title = '下移步驟'; moveDown.disabled = index === flow.steps.length - 1;
       var remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-button'; remove.textContent = '×'; remove.title = '移除此步驟';
+      action.disabled = slot.disabled = tab.disabled = textInput.disabled = enter.disabled = flowRunning;
+      moveUp.disabled = moveUp.disabled || flowRunning; moveDown.disabled = moveDown.disabled || flowRunning; remove.disabled = flowRunning;
+      row.dataset.action = step.action;
       row.append(action, slot, tab, textInput, enterLabel, moveUp, moveDown, remove); stepsHost.appendChild(row);
-      action.addEventListener('change', function () { step.action = action.value; textInput.placeholder = step.action === 'wait' ? '等待毫秒（100–30000）' : '指令內容'; textInput.value = step.action === 'wait' ? String(step.delayMs) : step.text; textInput.hidden = step.action === 'start' || step.action === 'stop'; enterLabel.hidden = step.action !== 'send'; queueSave(); });
+      action.addEventListener('change', function () { step.action = action.value; row.dataset.action = step.action; textInput.placeholder = step.action === 'wait' ? '毫秒（100–30000）' : step.action === 'pause' ? '提示使用者要完成的操作' : '指令內容'; textInput.value = step.action === 'wait' ? String(step.delayMs) : step.text; textInput.hidden = step.action === 'start' || step.action === 'stop'; enterLabel.hidden = step.action !== 'send'; slot.hidden = tab.hidden = step.action === 'wait' || step.action === 'pause'; queueSave(); });
       slot.addEventListener('change', function () { step.slot = Number(slot.value); step.tabId = ''; fillFlowTabs(tab, workspace, step.slot, ''); queueSave(); });
       tab.addEventListener('change', function () { step.tabId = tab.value; queueSave(); });
       textInput.addEventListener('input', function () { if (step.action === 'wait') step.delayMs = limitNumber(textInput.value, 500, 100, 30000); else step.text = textInput.value.slice(0, 16000); queueSave(); });
@@ -665,7 +697,7 @@
       moveUp.addEventListener('click', function () { var item = flow.steps.splice(index, 1)[0]; flow.steps.splice(index - 1, 0, item); renderFlowEditor(); queueSave(); });
       moveDown.addEventListener('click', function () { var item = flow.steps.splice(index, 1)[0]; flow.steps.splice(index + 1, 0, item); renderFlowEditor(); queueSave(); });
       remove.addEventListener('click', function () { flow.steps.splice(index, 1); renderFlowEditor(); queueSave(); });
-      textInput.hidden = step.action === 'start' || step.action === 'stop'; enterLabel.hidden = step.action !== 'send';
+      textInput.hidden = step.action === 'start' || step.action === 'stop'; enterLabel.hidden = step.action !== 'send'; slot.hidden = tab.hidden = step.action === 'wait' || step.action === 'pause';
     });
   }
   function fillFlowTabs(select, workspace, slot, selectedId) {
@@ -699,7 +731,7 @@
       var steps = data.steps.map(function (s) {
         var slot = limitNumber(s.slot, 0, 0, 15), cell = workspace.slots[slot];
         var tabId = cell.tabs.some(function (t) { return t.id === s.tabId; }) ? s.tabId : cell.activeTabId;
-        return { action: ['start', 'send', 'wait', 'stop'].indexOf(s.action) >= 0 ? s.action : 'send',
+        return { action: ['start', 'send', 'wait', 'pause', 'stop'].indexOf(s.action) >= 0 ? s.action : 'send',
           slot: slot, tabId: tabId, text: str(s.text, 16000), delayMs: limitNumber(s.delayMs, 500, 100, 30000), enter: s.enter !== false };
       });
       var flow = { id: uid('flow'), name: str(data.name, 64).trim() || (fileName || '匯入流程').replace(/\.tgridflow$/i, ''),
@@ -709,22 +741,39 @@
       if (!getView(workspace.id)) createView(workspace);
       currentFlowId = flow.id; renderWorkspaces(); renderFlowOptions(); activateWorkspace(workspace.id); saveConfig(false);
       showToast('流程已匯入並保存；檢視步驟後按「執行流程」才會送出指令。');
-      $('flowDialog').showModal();
+      if (!$('flowDialog').open) $('flowDialog').showModal();
     } catch (error) { showToast('匯入流程失敗：' + error.message, true); }
+  }
+  function waitForUserContinue(instruction, stepNumber) {
+    if (flowPauseResolve) return Promise.resolve(false);
+    $('flowPauseTitle').textContent = '流程暫停 · 第 ' + stepNumber + ' 步';
+    $('flowPauseMessage').textContent = instruction || '請完成需要的手動操作，完成後按「繼續」。';
+    return new Promise(function (resolve) { flowPauseResolve = resolve; $('flowPauseDialog').showModal(); $('continuePausedFlowButton').focus(); });
+  }
+  function finishFlowPause(continueFlow) {
+    var resolve = flowPauseResolve; flowPauseResolve = null;
+    if ($('flowPauseDialog').open) $('flowPauseDialog').close();
+    if (resolve) resolve(continueFlow);
   }
   async function runFlow() {
     var flow = currentFlow(); if (!flow || flowRunning) return;
     var workspace = flowWorkspace(flow);
     var summary = flow.steps.map(function (step, i) {
       var tab = workspace.slots[step.slot].tabs.find(function (t) { return t.id === step.tabId; }) || workspace.slots[step.slot].tabs[0];
-      var verb = step.action === 'send' ? ((step.text || '（空指令）') + (step.enter ? '  ↵' : '')) : step.action === 'wait' ? '等待 ' + step.delayMs + ' ms' : step.action === 'start' ? ('啟動 ' + tab.shell + (tab.exe ? ' · ' + tab.exe + ' ' + tab.args : '') + (tab.cwd ? ' · 目錄 ' + tab.cwd : '') + (tab.command ? '\n啟動指令：' + tab.command : '')) : '結束終端';
-      return (i + 1) + '. ' + String(step.slot + 1).padStart(2, '0') + ' 格 / ' + tab.name + ' · ' + verb;
+      var verb = step.action === 'send' ? ((step.text || '（空指令）') + (step.enter ? '  ↵' : '')) : step.action === 'wait' ? '等待 ' + step.delayMs + ' ms' : step.action === 'pause' ? '等待使用者：' + (step.text || '完成操作後按繼續') : step.action === 'start' ? ('啟動 ' + tab.shell + (tab.exe ? ' · ' + tab.exe + ' ' + tab.args : '') + (tab.cwd ? ' · 目錄 ' + tab.cwd : '') + (tab.command ? '\n啟動指令：' + tab.command : '')) : '結束終端';
+      return step.action === 'pause' || step.action === 'wait' ? (i + 1) + '. ' + verb : (i + 1) + '. ' + String(step.slot + 1).padStart(2, '0') + ' 格 / ' + tab.name + ' · ' + verb;
     }).join('\n');
     if (!(await askConfirmation('執行「' + flow.name + '」？', '以下步驟會依序送到本機終端：\n\n' + summary + '\n\n請確認目標與指令正確。', '確認執行'))) return;
     flowRunning = true; renderFlowEditor();
     try {
       for (var i = 0; i < flow.steps.length; i++) {
-        var step = flow.steps[i], view = getView(flow.workspaceId), state = getState(flow.workspaceId, step.slot, step.tabId);
+        var step = flow.steps[i];
+        if (step.action === 'wait') { await delay(limitNumber(step.delayMs, 500, 100, 30000)); continue; }
+        if (step.action === 'pause') {
+          if (!(await waitForUserContinue(step.text, i + 1))) throw new Error('已停止後續自動化步驟。');
+          continue;
+        }
+        var view = getView(flow.workspaceId), state = getState(flow.workspaceId, step.slot, step.tabId);
         if (!view || !state) throw new Error('第 ' + (i + 1) + ' 步找不到目標終端。');
         activateWorkspace(flow.workspaceId); view.panes[step.slot].config.activeTabId = step.tabId; renderPane(view, step.slot); markFocused(view, step.slot, step.tabId);
         if (step.action === 'start') {
@@ -735,14 +784,12 @@
         } else if (step.action === 'send') {
           if (state.status !== 'running') throw new Error('第 ' + (i + 1) + ' 步目標尚未執行；請先加入「啟動終端」步驟。');
           if (step.text) send(withGeneration(state, { type: 'input', data: step.text + (step.enter ? '\r' : '') }));
-        } else if (step.action === 'wait') {
-          await delay(limitNumber(step.delayMs, 500, 100, 30000));
         } else if (step.action === 'stop') {
           if (state.status === 'running') { state.status = 'stopping'; renderPane(view, step.slot); send(withGeneration(state, { type: 'stop' })); }
           var stopDeadline = Date.now() + 10000;
           while (state.status === 'stopping' && Date.now() < stopDeadline) await delay(100);
         }
-        if (step.action !== 'wait' && step.delayMs > 0) await delay(limitNumber(step.delayMs, 500, 100, 30000));
+        if (step.delayMs > 0) await delay(limitNumber(step.delayMs, 500, 100, 30000));
       }
       showToast('流程「' + flow.name + '」已完成。');
     } catch (error) { showToast('流程已停止：' + error.message, true); }
@@ -760,6 +807,9 @@
     if (!appConfig.commandPacks.length) select.add(new Option('（無指令包）', ''));
     if (appConfig.commandPacks.some(function (p) { return p.id === previous; })) select.value = previous;
     var pack = appConfig.commandPacks.find(function (p) { return p.id === select.value; });
+    $('renamePackButton').disabled = !pack; $('duplicatePackButton').disabled = !pack || appConfig.commandPacks.length >= 32;
+    $('deletePackButton').disabled = !pack || appConfig.commandPacks.length <= 1;
+    $('addCommandButton').disabled = !pack || pack.commands.length >= 128; $('exportPackButton').disabled = !pack;
     var list = $('commandList'); list.textContent = '';
     if (!pack || !pack.commands.length) { list.innerHTML = '<p class="help-note">此指令包目前是空的。可新增指令或匯入 .tgridcmd。</p>'; return; }
     pack.commands.forEach(function (command) {
@@ -772,37 +822,84 @@
       var insert = document.createElement('button'); insert.type = 'button'; insert.className = 'button'; insert.textContent = '插入';
       insert.addEventListener('click', function () { if (focused) insertCommand(focused.state, command.command); else showToast('請先選取一個終端分頁。'); });
       var edit = document.createElement('button'); edit.type = 'button'; edit.className = 'icon-button'; edit.textContent = '⋯'; edit.title = '編輯／刪除';
-      edit.addEventListener('click', function () { editCommand(pack, command); });
+      edit.addEventListener('click', function () { openCommandEditor(pack, command); });
       item.append(details, insert, edit);
       item.addEventListener('dragstart', function (event) { event.dataTransfer.setData('application/x-terminalgrid-command', command.command); event.dataTransfer.setData('text/plain', command.command); event.dataTransfer.effectAllowed = 'copy'; });
       list.appendChild(item);
     });
   }
-  function editCommand(pack, command) {
-    var action = window.prompt('輸入 EDIT 編輯，DELETE 刪除：', 'EDIT');
-    if (!action) return;
-    if (action.trim().toUpperCase() === 'DELETE') { pack.commands = pack.commands.filter(function (c) { return c !== command; }); renderCommandLibrary(); queueSave(); return; }
-    if (action.trim().toUpperCase() !== 'EDIT') return;
-    var name = window.prompt('指令名稱：', command.name); if (name === null) return;
-    var value = window.prompt('單行指令內容：', command.command); if (value === null) return;
-    command.name = name.trim().slice(0, 80) || '常用指令'; command.command = value.slice(0, 16000);
-    command.description = (window.prompt('說明：', command.description) || '').slice(0, 240);
-    renderCommandLibrary(); queueSave();
+  function selectedCommandPack() { return appConfig.commandPacks.find(function (p) { return p.id === $('commandPackSelect').value; }) || null; }
+  function openPackDialog(pack) {
+    packEditingId = pack ? pack.id : null; $('packDialogTitle').textContent = pack ? '重新命名指令包' : '新增指令包';
+    $('packNameInput').value = pack ? pack.name : '我的指令包'; $('packDialog').showModal(); $('packNameInput').focus(); $('packNameInput').select();
+  }
+  function savePackDialog(event) {
+    event.preventDefault(); var name = $('packNameInput').value.trim(); if (!name) { $('packNameInput').focus(); return; }
+    var pack = packEditingId ? appConfig.commandPacks.find(function (p) { return p.id === packEditingId; }) : null;
+    if (pack) pack.name = name.slice(0, 64);
+    else {
+      if (appConfig.commandPacks.length >= 32) { $('packDialog').close(); showToast('最多可建立 32 個指令包。', true); return; }
+      pack = { id: uid('pack'), name: name.slice(0, 64), commands: [] }; appConfig.commandPacks.push(pack);
+    }
+    $('packDialog').close(); renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); queueSave();
+  }
+  function duplicateCommandPack() {
+    var source = selectedCommandPack(); if (!source) return;
+    if (appConfig.commandPacks.length >= 32) { showToast('最多可建立 32 個指令包。', true); return; }
+    var pack = { id: uid('pack'), name: (source.name + ' 副本').slice(0, 64), commands: source.commands.map(function (command) {
+      return { id: uid('cmd'), name: command.name, description: command.description, command: command.command };
+    }) };
+    appConfig.commandPacks.push(pack); renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); queueSave(); showToast('指令包已複製。');
+  }
+  function deleteCommandPack() {
+    var pack = selectedCommandPack(); if (!pack) return;
+    if (appConfig.commandPacks.length <= 1) { showToast('至少需要保留一個指令包。'); return; }
+    askConfirmation('刪除指令包？', '將刪除「' + pack.name + '」及其中 ' + pack.commands.length + ' 個常用指令。', '刪除指令包').then(function (accepted) {
+      if (!accepted) return;
+      appConfig.commandPacks = appConfig.commandPacks.filter(function (item) { return item !== pack; });
+      renderCommandLibrary(); queueSave();
+    });
+  }
+  function openCommandEditor(pack, command) {
+    commandEditingRef = { packId: pack.id, commandId: command ? command.id : null };
+    $('commandEditTitle').textContent = command ? '編輯常用指令' : '新增常用指令';
+    $('commandNameInput').value = command ? command.name : '';
+    $('commandDescriptionInput').value = command ? command.description : '';
+    $('commandTextInput').value = command ? command.command : '';
+    $('deleteCommandButton').hidden = !command;
+    $('commandEditDialog').showModal(); $('commandNameInput').focus();
+  }
+  function saveCommandEditor(event) {
+    event.preventDefault(); var ref = commandEditingRef; if (!ref) return;
+    var pack = appConfig.commandPacks.find(function (item) { return item.id === ref.packId; });
+    if (!pack) { $('commandEditDialog').close(); return; }
+    var name = $('commandNameInput').value.trim(), value = $('commandTextInput').value;
+    if (!name || !value.trim()) { (name ? $('commandTextInput') : $('commandNameInput')).focus(); return; }
+    var command = ref.commandId ? pack.commands.find(function (item) { return item.id === ref.commandId; }) : null;
+    if (command) { command.name = name.slice(0, 80); command.description = $('commandDescriptionInput').value.slice(0, 240); command.command = value.slice(0, 16000); }
+    else {
+      if (pack.commands.length >= 128) { $('commandEditDialog').close(); showToast('每個指令包最多 128 個指令。', true); return; }
+      pack.commands.push({ id: uid('cmd'), name: name.slice(0, 80), description: $('commandDescriptionInput').value.slice(0, 240), command: value.slice(0, 16000) });
+    }
+    $('commandEditDialog').close(); renderCommandLibrary(); queueSave();
+  }
+  function deleteCommandSnippet() {
+    var ref = commandEditingRef, pack = ref && appConfig.commandPacks.find(function (item) { return item.id === ref.packId; });
+    var command = pack && pack.commands.find(function (item) { return item.id === ref.commandId; }); if (!command) return;
+    askConfirmation('刪除常用指令？', '將刪除「' + command.name + '」。', '刪除指令').then(function (accepted) {
+      if (!accepted) return;
+      pack.commands = pack.commands.filter(function (item) { return item !== command; });
+      $('commandEditDialog').close(); renderCommandLibrary(); queueSave();
+    });
   }
   function addCommand() {
-    var pack = appConfig.commandPacks.find(function (p) { return p.id === $('commandPackSelect').value; });
-    if (!pack) { newCommandPack(); pack = appConfig.commandPacks[appConfig.commandPacks.length - 1]; }
+    var pack = selectedCommandPack(); if (!pack) { showToast('請先建立或匯入指令包。', true); return; }
     if (pack.commands.length >= 128) { showToast('每個指令包最多 128 個指令。', true); return; }
-    var name = window.prompt('指令名稱：', '新指令'); if (name === null) return;
-    var command = window.prompt('單行指令內容：', ''); if (command === null) return;
-    pack.commands.push({ id: uid('cmd'), name: name.trim() || '常用指令', description: (window.prompt('說明：', '') || '').slice(0, 240), command: command.slice(0, 16000) });
-    renderCommandLibrary(); queueSave();
+    openCommandEditor(pack, null);
   }
   function newCommandPack() {
     if (appConfig.commandPacks.length >= 32) { showToast('最多可建立 32 個指令包。', true); return; }
-    var name = window.prompt('指令包名稱：', '我的指令包'); if (name === null) return;
-    var pack = { id: uid('pack'), name: name.trim() || '指令包', commands: [] };
-    appConfig.commandPacks.push(pack); renderCommandLibrary(); $('commandPackSelect').value = pack.id; queueSave();
+    openPackDialog(null);
   }
   function commandFileObject(pack) { return { format: 'terminal-grid-command-pack', version: 1, name: pack.name, commands: pack.commands }; }
   function exportCommandPack() {
@@ -842,14 +939,20 @@
     menu.hidden = false; menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 8) + 'px';
     menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 8) + 'px';
   }
-  function importDroppedFile(file) {
-    if (!file) return;
+  function importDroppedFiles(files) {
+    var queue = Array.prototype.slice.call(files || []);
+    function next() { if (queue.length) importDroppedFile(queue.shift(), next); }
+    next();
+  }
+  function importDroppedFile(file, done) {
+    done = typeof done === 'function' ? done : function () {};
+    if (!file) { done(); return; }
     var name = file.name || '';
-    if (!/\.(tgridflow|tgridcmd)$/i.test(name)) { showToast('可拖入 .tgridflow 或 .tgridcmd 檔案。', true); return; }
-    if (file.size > 1024 * 1024) { showToast('檔案超過 1 MB。', true); return; }
+    if (!/\.(tgridflow|tgridcmd)$/i.test(name)) { showToast('可拖入 .tgridflow 或 .tgridcmd 檔案。', true); done(); return; }
+    if (file.size > 1024 * 1024) { showToast('檔案超過 1 MB。', true); done(); return; }
     var reader = new FileReader();
-    reader.onload = function () { if (/\.tgridflow$/i.test(name)) loadFlowFile(String(reader.result), name); else loadCommandPackFile(String(reader.result), name); };
-    reader.onerror = function () { showToast('無法讀取拖入的檔案。', true); };
+    reader.onload = function () { if (/\.tgridflow$/i.test(name)) loadFlowFile(String(reader.result), name); else loadCommandPackFile(String(reader.result), name); done(); };
+    reader.onerror = function () { showToast('無法讀取拖入的檔案。', true); done(); };
     reader.readAsText(file, 'UTF-8');
   }
 
@@ -876,6 +979,9 @@
     $('hiddenButton').addEventListener('click', function () { activeView.config.rows = 4; activeView.config.cols = 4; activeView.zoomedSlot = null; applyLayout(activeView); queueSave(); });
     $('unzoomButton').addEventListener('click', function () { activeView.zoomedSlot = null; applyLayout(activeView); });
     $('addWorkspaceButton').addEventListener('click', addWorkspace);
+    $('workspaceForm').addEventListener('submit', saveWorkspaceDialog);
+    $('deleteWorkspaceButton').addEventListener('click', function () { var id = workspaceEditingId; $('workspaceDialog').close(); if (id) deleteWorkspace(id); });
+    $('duplicateWorkspaceButton').addEventListener('click', function () { var id = workspaceEditingId; $('workspaceDialog').close(); if (id) duplicateWorkspace(id); });
     $('saveButton').addEventListener('click', function () { saveConfig(true); });
     $('exportButton').addEventListener('click', function () { if (hostReady) send({ type: 'export', config: appConfig }); });
     $('importButton').addEventListener('click', function () { if (hostReady) { invalidateFolderRequests(); send({ type: 'import' }); } });
@@ -914,13 +1020,22 @@
     $('runFlowButton').addEventListener('click', runFlow);
     $('deleteFlowButton').addEventListener('click', deleteFlow);
     $('importFlowButton').addEventListener('click', function () { if (hostReady) send({ type: 'flowOpen' }); });
+    $('continuePausedFlowButton').addEventListener('click', function () { finishFlowPause(true); });
+    $('stopPausedFlowButton').addEventListener('click', function () { finishFlowPause(false); });
+    $('flowPauseDialog').addEventListener('cancel', function (event) { event.preventDefault(); finishFlowPause(false); });
     $('commandPackSelect').addEventListener('change', renderCommandLibrary);
     $('newPackButton').addEventListener('click', newCommandPack);
+    $('renamePackButton').addEventListener('click', function () { var pack = selectedCommandPack(); if (pack) openPackDialog(pack); });
+    $('duplicatePackButton').addEventListener('click', duplicateCommandPack);
+    $('deletePackButton').addEventListener('click', deleteCommandPack);
+    $('packForm').addEventListener('submit', savePackDialog);
     $('addCommandButton').addEventListener('click', addCommand);
+    $('commandEditForm').addEventListener('submit', saveCommandEditor);
+    $('deleteCommandButton').addEventListener('click', deleteCommandSnippet);
     $('exportPackButton').addEventListener('click', exportCommandPack);
     $('importPackButton').addEventListener('click', function () { if (hostReady) send({ type: 'commandPackOpen' }); });
-    $('workspaceHost').addEventListener('dragover', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) event.preventDefault(); });
-    $('workspaceHost').addEventListener('drop', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) { event.preventDefault(); importDroppedFile(event.dataTransfer.files[0]); } });
+    document.addEventListener('dragover', function (event) { if (event.dataTransfer && (event.dataTransfer.files.length || hasDataType(event.dataTransfer, 'Files'))) event.preventDefault(); });
+    document.addEventListener('drop', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) { event.preventDefault(); importDroppedFiles(event.dataTransfer.files); } });
     document.addEventListener('click', function (event) { if (!event.target.closest('#terminalContextMenu')) $('terminalContextMenu').hidden = true; });
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape' && activeView && activeView.zoomedSlot !== null && !document.querySelector('dialog[open]')) {

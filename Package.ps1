@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '3.0.1',
+    [string]$Version = '3.1.0',
     [switch]$SkipBuild,
     [string]$ApplicationPath = (Join-Path $PSScriptRoot 'TerminalGridIntegrated.exe')
 )
@@ -13,7 +13,7 @@ $releaseFolder = Join-Path $PSScriptRoot '.release'
 $stageFolder = Join-Path $releaseFolder ('stage-' + [Guid]::NewGuid().ToString('N'))
 $payloadFolder = Join-Path $stageFolder 'TerminalGrid'
 New-Item -ItemType Directory -Path $payloadFolder -Force | Out-Null
-$payloadItems = @('Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'ui', 'licenses', 'source', 'examples', 'tests', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'RELEASE_NOTES.md', '使用說明.md', '驗證紀錄.md', '預覽.png', 'dependencies.json', 'Build.ps1', 'UpdateAndLaunch.ps1', 'Package.ps1', 'Test.ps1')
+$payloadItems = @('Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'ui', 'licenses', 'source', 'examples', 'tests', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'RELEASE_NOTES.md', '使用說明.md', '驗證紀錄.md', 'SCRCPY_INTEGRATION_SPIKE.md', '預覽.png', 'dependencies.json', 'Build.ps1', 'UpdateAndLaunch.ps1', 'Package.ps1', 'Test.ps1')
 foreach ($item in $payloadItems) {
     $sourceItem = Join-Path $PSScriptRoot $item
     if (-not (Test-Path -LiteralPath $sourceItem)) { throw "Missing package item: $item" }

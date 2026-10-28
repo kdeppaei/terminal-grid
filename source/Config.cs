@@ -169,7 +169,7 @@ namespace TerminalGridIntegrated
                 flow.steps = flow.steps.Take(100).Where(step => step != null).ToList();
                 foreach (FlowStepConfig step in flow.steps)
                 {
-                    if (step.action != "start" && step.action != "send" && step.action != "wait" && step.action != "stop") step.action = "send";
+                    if (step.action != "start" && step.action != "send" && step.action != "wait" && step.action != "pause" && step.action != "stop") step.action = "send";
                     step.slot = Math.Max(0, Math.Min(15, step.slot));
                     step.tabId = Limit(step.tabId, 64);
                     step.delayMs = Math.Max(100, Math.Min(30000, step.delayMs));
