@@ -1,23 +1,25 @@
-# Terminal Grid 2.1.0
+# Terminal Grid 3.0.0
 
-每格終端現在都可以從本機資料夾直接啟動，不必手動輸入工作目錄。
+Terminal Grid 3.0 adds named workspaces, stacked terminal tabs in each grid cell, reusable automation flows, and portable command packs.
 
-- 新增每格「從資料夾啟動」：使用 Windows 資料夾選擇器，選好後以該目錄啟動 CMD／PowerShell。
-- 終端設定新增「選擇資料夾」，保留手動輸入目錄的方式。
-- 顯示並記住每格的啟動資料夾。
-- 執行中的格子選擇新資料夾時，只設定下次啟動目錄，現有測試繼續執行。
-- 保留中文、空白與百分比等合法資料夾名稱，避免把已存在的路徑誤作環境變數展開。
+- Create up to 12 named workspaces. Each workspace keeps its own 1–4 by 1–4 layout.
+- Add up to 8 terminal tabs inside any cell. Switching tabs stays inside that cell; sessions keep running when hidden.
+- Build ordered flows from start, send command, wait, and stop steps, targeting a specific cell and terminal tab. Review the full target and command list before each run.
+- Save and share automation as .tgridflow files. Imported flows create a separate workspace and do not execute until the user runs them.
+- Manage command snippets in local packs and import/export .tgridcmd files. Right-click, click Insert, or drag a snippet into a running terminal; insertion never presses Enter.
+- Keep existing folder-based startup, custom shell settings, copy/paste, and 1–16 cell layouts.
+- Upgrade prior JSON layout files automatically. Configuration remains local under %LOCALAPPDATA%\TerminalGridIntegrated.
 
-## 下載與更新
+## Download and update
 
-下載 Windows x64 ZIP，完整解壓縮至新資料夾後執行 `TerminalGridIntegrated.exe`。請保留 DLL 和 `ui` 資料夾。
+Download the Windows x64 ZIP from the GitHub Releases page, extract all files to a folder, and run TerminalGridIntegrated.exe. Keep the WebView2 DLLs and ui folder beside the executable.
 
-執行中的舊版本可繼續保留，完成測試後再關閉舊版並開啟新版；原有配置會繼續使用。
+For this working copy, UpdateAndLaunch.ps1 builds the new version to a staging path, asks the previous process to close, replaces the executable, and starts the new version. It does not force-terminate the old process; if an active terminal prompts for confirmation, confirm in the app so the update can continue.
 
-需要 Windows 10 1809 以上、.NET Framework 4.8 與已安裝的 WebView2 Runtime。`*.sha256` 提供下載包的 SHA-256 校驗值。
+Requires 64-bit Windows 10 1809 or later, .NET Framework 4.8, and Microsoft Edge WebView2 Runtime. The .sha256 file contains the release ZIP checksum.
 
-## 授權與公司環境
+## License and company environment
 
-原始程式碼採 MIT；第三方元件維持原授權並隨附 notices。本版 EXE 未簽署 Authenticode，不代表已通過公司內部資安審核。程式沒有內建提權，Shell 繼承啟動者權限，請依公司流程核准使用。
+The project-authored source is provided under the MIT License; third-party components retain their own licenses and notices. The executable is not Authenticode-signed. Public availability and MIT licensing do not constitute internal security approval. The application does not elevate privileges; child shells inherit the permissions of the launching user. Follow company software and endpoint approval requirements before use.
 
-關閉主視窗並確認後，會結束本工具內建的終端與測試工作。
+Closing the main window ends the integrated terminal sessions and their child processes after confirmation. The application does not attach to pre-existing CMD, PowerShell, Windows Terminal, ADB, or scrcpy windows; start commands in a managed terminal tab when you need that tab's output and input.

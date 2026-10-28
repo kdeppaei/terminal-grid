@@ -7,13 +7,15 @@
   <title>Terminal Grid · 整合式終端</title>
   <link rel="stylesheet" href="vendor/xterm.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="v3.css">
 </head>
 <body>
   <div id="app">
     <header class="app-header">
       <div class="brand"><span class="brand-mark" aria-hidden="true">›_</span><div><h1>Terminal Grid</h1><p>整合式終端管理器</p></div><span class="local-tag">本機執行</span></div>
-      <div class="header-actions"><button id="helpButton" class="button quiet" title="使用說明">使用說明</button><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="saveButton" class="button">儲存配置</button></div>
+      <div class="header-actions"><button id="helpButton" class="button quiet" title="使用說明">使用說明</button><button id="flowButton" class="button">自動化</button><button id="commandButton" class="button">指令庫</button><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="saveButton" class="button">儲存配置</button></div>
     </header>
+    <nav class="workspace-bar" aria-label="工作區分頁"><div id="workspaceTabs" class="workspace-tabs" role="tablist"></div><button id="addWorkspaceButton" class="button workspace-add" title="新增工作區">＋ 新工作區</button></nav>
     <section class="toolbar" aria-label="終端排列與控制">
       <div class="toolbar-group layout-group"><span class="toolbar-label">排列</span><select id="presetSelect" aria-label="排列預設"><option value="2x2">2 × 2 · 四格</option><option value="2x3">2 × 3 · 六格</option><option value="3x3">3 × 3 · 九格</option><option value="3x4">3 × 4 · 十二格</option><option value="custom">自訂格數</option></select><label class="dimension">列 <select id="rowSelect" aria-label="列數"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label><span class="dimension-cross">×</span><label class="dimension">欄 <select id="colSelect" aria-label="欄數"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label></div>
       <span class="toolbar-divider" aria-hidden="true"></span>
@@ -21,7 +23,7 @@
       <div class="toolbar-spacer"></div><div class="toolbar-group clipboard-group"><button id="copyButton" class="button quiet" title="複製目前終端的選取文字 (Ctrl+Shift+C)">複製</button><button id="pasteButton" class="button quiet" title="貼上到目前終端 (Ctrl+Shift+V)">貼上</button></div>
       <button id="hiddenButton" class="button hidden-warning" hidden></button><button id="unzoomButton" class="button" hidden>返回網格 <kbd>Esc</kbd></button><button id="startAllButton" class="button primary"><span aria-hidden="true">▶</span> 啟動可見終端</button>
     </section>
-    <main id="grid" class="terminal-grid" aria-label="終端網格"></main>
+    <div id="workspaceHost" class="workspace-host"></div>
     <footer class="statusbar"><div class="status-left"><span id="connectionDot" class="connection-dot"></span><span id="connectionText">正在連接終端引擎…</span><span class="status-separator">│</span><span id="sessionCount">0 個執行中</span><span id="layoutStatus">2 × 2</span></div><div id="statusMessage" role="status" aria-live="polite">配置只儲存設定；啟動終端才會執行指令。</div><span class="keyboard-hint"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C / V</kbd> 複製／貼上</span></footer>
   </div>
 
@@ -40,6 +42,12 @@
   <dialog id="confirmDialog" class="modal confirm-modal" aria-labelledby="confirmTitle"><div class="modal-heading"><div><span class="eyebrow">SESSION CONTROL</span><h2 id="confirmTitle">結束終端？</h2></div></div><div class="modal-content"><p id="confirmMessage"></p></div><div class="modal-actions"><button id="confirmCancel" class="button quiet">取消</button><button id="confirmAccept" class="button danger">結束終端</button></div></dialog>
 
   <dialog id="helpDialog" class="modal help-modal" aria-labelledby="helpTitle"><div class="modal-heading"><div><span class="eyebrow">QUICK GUIDE</span><h2 id="helpTitle">讓每個測試，都有自己的位置。</h2></div><button class="icon-button modal-close" data-close="helpDialog" aria-label="關閉說明">×</button></div><div class="modal-content help-content"><ol><li><strong>選擇格數</strong><span>設定列、欄數，最多同時顯示 16 格。</span></li><li><strong>選擇本機資料夾</strong><span>每格按「從資料夾啟動」，選取後即以該資料夾啟動 CMD／PowerShell。齒輪設定內也可選取資料夾，再儲存供下次啟動使用。</span></li><li><strong>啟動並操作</strong><span>點選終端輸入指令；也可一次啟動所有可見格。執行中按「下次啟動資料夾」只會設定下次啟動位置，測試會繼續執行。</span></li></ol><div class="help-shortcuts"><p><kbd>Ctrl+C</kbd><span>中斷前景指令，例如持續 Ping。</span></p><p><kbd>Ctrl+Shift+C</kbd><span>複製選取文字。</span></p><p><kbd>Ctrl+Shift+V</kbd><span>貼上剪貼簿文字。</span></p><p><kbd>Esc</kbd><span>離開單格放大，返回網格。</span></p></div><p class="help-note">每格顯示的「啟動資料夾」是已儲存的設定；終端啟動後仍可用 cd 等指令自行切換。資料夾選擇在本機進行，不會上傳檔案。</p><p class="help-note">縮小格數會保留隱藏格的測試。關閉格子或離開管理器會結束對應終端程序。匯入配置不會自動啟動指令。</p><p class="help-note">此版本使用 Windows ConPTY 整合終端，無法接管已在其他視窗執行的 CMD／PowerShell。請在這裡啟動新終端。</p></div><div class="modal-actions"><button class="button primary" data-close="helpDialog">開始使用</button></div></dialog>
+
+  <dialog id="flowDialog" class="modal flow-modal" aria-labelledby="flowTitle"><div class="modal-heading"><div><span class="eyebrow">TERMINAL AUTOMATION</span><h2 id="flowTitle">自動化流程</h2></div><button class="icon-button modal-close" data-close="flowDialog" aria-label="關閉流程">×</button></div><div class="modal-content"><div class="flow-toolbar"><select id="flowSelect" aria-label="已儲存流程"></select><button id="newFlowButton" class="button">新增</button><button id="importFlowButton" class="button">匯入 .tgridflow</button></div><p id="flowWorkspaceLabel" class="flow-workspace-label"></p><label class="field">流程名稱<input id="flowName" maxlength="64" placeholder="例如：iperf3 雙向測試"></label><div class="tip"><span>i</span><span>步驟會照順序執行。按「執行」前會顯示目標格、終端分頁與指令清單；流程不會在匯入或開啟時自行執行。</span></div><div id="flowSteps" class="flow-steps"></div><div class="flow-actions"><button id="addFlowStepButton" class="button">＋ 加入步驟</button><span class="toolbar-spacer"></span><button id="saveFlowFileButton" class="button">另存 .tgridflow</button><button id="runFlowButton" class="button primary">▶ 執行流程</button></div></div><div class="modal-actions"><button id="deleteFlowButton" class="button danger">刪除流程</button><button class="button" data-close="flowDialog">完成</button></div></dialog>
+
+  <dialog id="commandDialog" class="modal command-modal" aria-labelledby="commandTitle"><div class="modal-heading"><div><span class="eyebrow">COMMAND LIBRARY</span><h2 id="commandTitle">常用指令庫</h2></div><button class="icon-button modal-close" data-close="commandDialog" aria-label="關閉指令庫">×</button></div><div class="modal-content"><div class="flow-toolbar"><select id="commandPackSelect" aria-label="指令包"></select><button id="newPackButton" class="button">新增指令包</button><button id="importPackButton" class="button">匯入 .tgridcmd</button></div><div id="commandList" class="command-list"></div><p class="help-note">可將指令拖到終端，或在終端按右鍵選取。拖曳／插入只會填入文字，不會按 Enter 執行。</p><div class="flow-actions"><button id="addCommandButton" class="button">＋ 新增指令</button><span class="toolbar-spacer"></span><button id="exportPackButton" class="button">另存 .tgridcmd</button></div></div><div class="modal-actions"><button class="button" data-close="commandDialog">完成</button></div></dialog>
+
+  <div id="terminalContextMenu" class="terminal-context-menu" hidden></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="vendor/xterm.js"></script>

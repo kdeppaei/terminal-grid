@@ -30,6 +30,24 @@ static class ConfigTests
             Check(normalized.slots[1].name.Length == 80 && normalized.slots[1].shell == "PowerShell" && normalized.slots[1].command.Length == 16000, "slot fields and invalid shell normalize");
             LayoutConfig parsed = ConfigStore.Parse("{\"version\":99,\"rows\":4,\"cols\":4,\"fontSize\":1,\"slots\":null}");
             Check(parsed.version == 1 && parsed.fontSize == 10 && parsed.slots.Count == 16, "JSON schema normalizes imported values without launching");
+            AppConfig legacyApp = ConfigStore.ParseAppConfig("{\"rows\":3,\"cols\":2,\"fontSize\":15,\"slots\":[{\"name\":\"legacy\",\"shell\":\"CMD\"}]}");
+            Check(legacyApp.workspaces.Count == 1 && legacyApp.workspaces[0].rows == 3 && legacyApp.workspaces[0].slots[0].tabs.Count == 1, "legacy layout upgrades to a workspace with a terminal tab");
+            AppConfig freshApp = AppConfig.Normalize(null);
+            Check(freshApp.workspaces[0].slots.Count == 16 && freshApp.workspaces[0].slots[0].tabs[0].shell == "CMD", "fresh app defaults to 16 CMD terminal cells");
+            WorkspaceConfig workspace = WorkspaceConfig.Normalize(new WorkspaceConfig { id = "iperf", name = "iperf", slots = new List<PaneConfig> { new PaneConfig { tabs = new List<TerminalTabConfig> { new TerminalTabConfig { id = "server", name = "server", shell = "CMD" }, new TerminalTabConfig { id = "client", name = "client", shell = "PowerShell" } }, activeTabId = "client" } } }, 0);
+            Check(workspace.slots[0].tabs.Count == 2 && workspace.slots[0].activeTabId == "client" && workspace.slots[0].shell == "PowerShell", "workspace preserves independent terminal tabs and active tab config");
+            PaneConfig duplicateTabs = LayoutConfig.Normalize(new LayoutConfig { slots = new List<PaneConfig> { new PaneConfig { tabs = new List<TerminalTabConfig> { new TerminalTabConfig { id = "same" }, new TerminalTabConfig { id = "same" } } } } }).slots[0];
+            Check(duplicateTabs.tabs[0].id != duplicateTabs.tabs[1].id, "duplicate tab identifiers normalize to unique values within a cell");
+            AppConfig app = new AppConfig { workspaces = new List<WorkspaceConfig> { workspace }, activeWorkspaceId = workspace.id,
+                automations = new List<AutomationConfig> { new AutomationConfig { id = "iperf-flow", name = "iperf flow", workspaceId = workspace.id, steps = new List<FlowStepConfig> { new FlowStepConfig { action = "send", slot = 0, tabId = "client", text = "iperf3 -c 127.0.0.1" } } } } };
+            string appJson = ConfigStore.Serializer().Serialize(AppConfig.Normalize(app));
+            AppConfig appRoundTrip = ConfigStore.ParseAppConfig(appJson);
+            Check(appRoundTrip.workspaces.Count == 1 && appRoundTrip.workspaces[0].slots[0].tabs.Count == 2, "application config round-trips workspace terminal tabs");
+            Check(appRoundTrip.automations.Count == 1 && appRoundTrip.automations[0].steps[0].tabId == "client", "automation step persists its target terminal tab");
+            WorkspaceConfig tooManyTabs = WorkspaceConfig.Normalize(new WorkspaceConfig { slots = new List<PaneConfig> { new PaneConfig { tabs = new List<TerminalTabConfig>() } } }, 0);
+            for (int i = 0; i < 12; i++) tooManyTabs.slots[0].tabs.Add(new TerminalTabConfig { id = "tab-extra-" + i });
+            tooManyTabs = WorkspaceConfig.Normalize(tooManyTabs, 0);
+            Check(tooManyTabs.slots[0].tabs.Count == 8, "workspace normalizer enforces the eight-tabs-per-cell limit");
             ShellCommand cmd = ShellBuilder.Build(new PaneConfig { shell = "CMD" });
             Check(cmd.Arguments == "/D /Q /K" && cmd.TemporaryScript == null, "blank CMD startup opens interactive shell with no generated script");
             string command = "Write-Host '中文 & % $ ` \"測試\"'\nGet-Date";
