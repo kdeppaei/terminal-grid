@@ -32,4 +32,5 @@ jobs:
             .release/*.zip
             .release/*.sha256
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
