@@ -1,4 +1,6 @@
-# Terminal Grid 3.0.0
+# Terminal Grid 3.0.1
+
+3.0.1 fixes the local update script so it continues when the previous app exits immediately after the user confirms closing it. It still never force-terminates a running process.
 
 Terminal Grid 3.0 adds named workspaces, stacked terminal tabs in each grid cell, reusable automation flows, and portable command packs.
 

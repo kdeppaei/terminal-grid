@@ -19,8 +19,13 @@ try {
         if ($process -and -not $process.HasExited) { [void]$process.CloseMainWindow() }
     }
     foreach ($item in $running) {
+        if (-not (Get-Process -Id $item.ProcessId -ErrorAction SilentlyContinue)) { continue }
         try { Wait-Process -Id $item.ProcessId -Timeout 35 -ErrorAction Stop }
-        catch { throw '舊版尚未關閉。若有執行中的終端，請在 Terminal Grid 主視窗確認結束；更新未強制終止任何程序。' }
+        catch {
+            if (Get-Process -Id $item.ProcessId -ErrorAction SilentlyContinue) {
+                throw '舊版尚未關閉。若有執行中的終端，請在 Terminal Grid 主視窗確認結束；更新未強制終止任何程序。'
+            }
+        }
     }
 
     if (Test-Path -LiteralPath $target -PathType Leaf) {

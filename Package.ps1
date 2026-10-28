@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '3.0.0',
+    [string]$Version = '3.0.1',
     [switch]$SkipBuild,
     [string]$ApplicationPath = (Join-Path $PSScriptRoot 'TerminalGridIntegrated.exe')
 )
