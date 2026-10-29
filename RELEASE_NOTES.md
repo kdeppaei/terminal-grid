@@ -1,13 +1,16 @@
-# Terminal Grid 3.1.0
+# Terminal Grid 3.2.0
 
-3.1.0 makes workspace, command-pack, and automation editing easier to manage. Automation flows can pause for a person to finish a task and continue only after the user chooses Continue.
+3.2.0 adds a local value shelf and editable command drafts for repeated network and device tests.
 
-- Add, rename, duplicate, and delete workspaces with in-app dialogs. Duplicated workspaces retain layout and terminal settings; their terminals do not start automatically.
-- Add, edit, delete, rename, and duplicate command packs and snippets without browser prompt dialogs.
-- Drag multiple `.tgridflow` and `.tgridcmd` files onto the application to import them. Imported flows still require review and an explicit run action.
-- Add an automation step that pauses with a user-written instruction. Continue resumes later steps; Stop Flow cancels the remaining automation without closing running terminals.
-- Preserve the existing command insertion safety behavior: inserting or dragging a snippet fills the terminal but does not press Enter.
-- Document the scrcpy same-cell integration architecture and its test requirements. This release does not embed scrcpy windows; live-device validation remains outstanding because scrcpy and ADB were unavailable in the development environment.
+- Automatically capture IPv6 from recognized `inet6` / `IPv6` output lines, including common ifconfig, Android/ADB, ip -6 addr and ipconfig formats. Records include source workspace, terminal slot, interface and time.
+- Keep the latest 80 records in memory, deduplicate repeated source/address pairs, copy from a context menu or button, and drag values into an active terminal without pressing Enter. Older records may no longer be valid.
+- Manually save a selected device name, IPv4 address or other single-line value to the same shelf.
+- Bring a selected command into a draft, select A in `ping A`, and replace only that selection with saved B via drag, context menu or Replace. Review the result before pasting it into the original terminal.
+- Keep the draft target fixed even when focus moves to another terminal. Reject sends after the target terminal is stopped, removed or restarted.
+- Retain explicit IPv6 scope suffixes, remove CIDR prefix lengths, and never infer a ping scope from a remote source interface.
+- Handle split UTF-8 output and ANSI control sequences with bounded parsing; captures and drafts are excluded from saved/exported configuration.
+
+Terminal history itself is read-only; replacement happens in the draft. Pasting appends at the destination terminal cursor and does not clear existing input or execute it. Automatic capture is format-based, not a live inventory of device connectivity. Real Wi-Fi Aware reconnection testing remains device-dependent.
 
 ## Download and update
 

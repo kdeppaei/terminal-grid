@@ -21,6 +21,9 @@ jobs:
       - name: Test configuration and local terminals
         shell: pwsh
         run: ./Test.ps1
+      - name: Test IPv6 output extraction
+        shell: pwsh
+        run: node ./tests/Ipv6CaptureTests.js
       - name: Package Windows release
         shell: pwsh
         run: ./Package.ps1 -SkipBuild

@@ -8,6 +8,8 @@
   var pendingFolderRequest = null, folderRequestSequence = 0, saveTimer = null, fitFrame = null;
   var toastTimer = null, confirmation = null, currentFlowId = null, flowRunning = false;
   var workspaceEditingId = null, packEditingId = null, commandEditingRef = null, flowPauseResolve = null;
+  var capturedValues = [], captureRenderTimer = null, captureAutoOpened = false, captureDragging = false;
+  var commandDraft = null, draftTarget = null;
   var $ = function (id) { return document.getElementById(id); };
   var workspaceHost = $('workspaceHost');
 
@@ -133,6 +135,98 @@
     toastTimer = window.setTimeout(function () { toast.hidden = true; }, isError ? 6500 : 3500);
   }
   function delay(ms) { return new Promise(function (resolve) { window.setTimeout(resolve, ms); }); }
+  function setCapturePanel(open) {
+    $('capturePanel').hidden = !open; $('captureButton').setAttribute('aria-expanded', String(open)); scheduleFit();
+  }
+  function resetCaptureScanner(state) {
+    state.captureDecoder = new TextDecoder('utf-8');
+    state.captureScanner = window.TerminalGridIPv6.createScanner(function (entry) { recordCapture(state, entry); });
+  }
+  function recordCapture(state, entry) {
+    if (!$('captureEnabled').checked || getState(state.workspaceId, state.slot, state.tabId) !== state) return;
+    var workspace = getWorkspace(state.workspaceId), tab = getTabConfig(workspace, state.slot, state.tabId);
+    if (!workspace || !tab) return;
+    var key = [state.workspaceId, state.slot, state.tabId, entry.interfaceName, entry.address.toLowerCase()].join('|');
+    capturedValues = capturedValues.filter(function (item) { return item.key !== key; });
+    capturedValues.unshift({ key: key, address: entry.address, interfaceName: entry.interfaceName,
+      workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, generation: state.generation,
+      source: workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name,
+      seen: new Date() });
+    capturedValues.length = Math.min(80, capturedValues.length);
+    if (!captureAutoOpened) { captureAutoOpened = true; setCapturePanel(true); }
+    queueCaptureRender();
+  }
+  function queueCaptureRender() {
+    if (captureRenderTimer !== null) return;
+    captureRenderTimer = window.setTimeout(function () { captureRenderTimer = null; if (!captureDragging) renderCaptures(); }, 100);
+  }
+  function pruneCaptures(state) {
+    capturedValues = capturedValues.filter(function (item) {
+      return item.workspaceId !== state.workspaceId || item.slot !== state.slot || item.tabId !== state.tabId;
+    });
+    queueCaptureRender();
+  }
+  async function copyCapture(item) {
+    try { await navigator.clipboard.writeText(item.address); showToast('已複製：' + item.address); }
+    catch (_) { showToast('無法使用剪貼簿，請檢查系統權限。', true); }
+  }
+  function validCaptureText(text) { return typeof text === 'string' && text.trim().length > 0 && text.length <= 4096 && !/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(text); }
+  function saveCaptureText(text, state) {
+    if (!validCaptureText(text)) { showToast('請選取或輸入單行文字，最多 4,096 字元。', true); return false; }
+    var workspace = state && getWorkspace(state.workspaceId), tab = workspace && getTabConfig(workspace, state.slot, state.tabId);
+    var key = 'manual|' + text;
+    capturedValues = capturedValues.filter(function (item) { return item.key !== key; });
+    capturedValues.unshift({ key: key, address: text, source: tab ? workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name + ' · 手動暫存' : '手動暫存', seen: new Date() });
+    capturedValues.length = Math.min(80, capturedValues.length); captureAutoOpened = true; setCapturePanel(true); renderCaptures(); return true;
+  }
+  function openCommandDraft(state) {
+    if (!state || getState(state.workspaceId, state.slot, state.tabId) !== state) { showToast('請先選取要使用的終端分頁。'); return; }
+    var workspace = getWorkspace(state.workspaceId), tab = getTabConfig(workspace, state.slot, state.tabId);
+    var selection = state.terminal.getSelection(), existing = $('commandDraftText');
+    draftTarget = { state: state, generation: state.generation };
+    setCapturePanel(true); $('commandDraftHost').hidden = false;
+    commandDraft.open(selection || (existing ? existing.value : ''), workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name);
+  }
+  function showCaptureMenu(event, item) {
+    event.preventDefault();
+    var menu = $('terminalContextMenu'); menu.textContent = '';
+    var copy = document.createElement('button'); copy.type = 'button'; copy.textContent = '複製暫存文字';
+    copy.addEventListener('click', function () { menu.hidden = true; copyCapture(item); });
+    var replace = document.createElement('button'); replace.type = 'button'; replace.textContent = '替換草稿中的選取文字';
+    replace.addEventListener('click', function () { menu.hidden = true; commandDraft.replaceSelection(item.address); });
+    menu.append(copy, replace); positionContextMenu(menu, event.clientX, event.clientY);
+  }
+  function positionContextMenu(menu, x, y) {
+    x = Number.isFinite(x) ? x : 8; y = Number.isFinite(y) ? y : 8;
+    menu.hidden = false; menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+  }
+  function renderCaptures() {
+    var list = $('captureList'); list.textContent = '';
+    $('captureCount').textContent = String(capturedValues.length);
+    $('captureEmpty').hidden = capturedValues.length > 0; $('clearCapturesButton').disabled = capturedValues.length === 0;
+    capturedValues.forEach(function (item, index) {
+      var row = document.createElement('article'); row.className = 'capture-item'; row.draggable = true; row.dataset.address = item.address;
+      var top = document.createElement('div'); top.className = 'capture-item-heading';
+      var label = document.createElement('span'); label.textContent = index === 0 ? '最新擷取' : '擷取紀錄';
+      var time = document.createElement('time'); time.dateTime = item.seen.toISOString(); time.textContent = item.seen.toLocaleTimeString('zh-TW', { hour12: false }); time.title = item.seen.toLocaleString('zh-TW');
+      top.append(label, time);
+      var address = document.createElement('code'); address.className = 'capture-address'; address.textContent = item.address;
+      var source = document.createElement('p'); source.className = 'capture-source'; source.textContent = item.source + (item.interfaceName ? ' · ' + item.interfaceName : ''); source.title = source.textContent;
+      var copy = document.createElement('button'); copy.type = 'button'; copy.className = 'button quiet capture-copy'; copy.textContent = '複製'; copy.setAttribute('aria-label', '複製 ' + item.address);
+      copy.addEventListener('click', function () { copyCapture(item); });
+      var replace = document.createElement('button'); replace.type = 'button'; replace.className = 'button quiet capture-replace'; replace.textContent = '替換'; replace.title = '替換指令草稿中框選的文字';
+      replace.addEventListener('click', function () { commandDraft.replaceSelection(item.address); });
+      var remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-button capture-remove'; remove.textContent = '×'; remove.setAttribute('aria-label', '移除 ' + item.address);
+      remove.addEventListener('click', function () { capturedValues = capturedValues.filter(function (value) { return value !== item; }); renderCaptures(); });
+      row.addEventListener('contextmenu', function (event) { showCaptureMenu(event, item); });
+      row.addEventListener('dragstart', function (event) {
+        captureDragging = true;
+        event.dataTransfer.setData('application/x-terminalgrid-value', item.address); event.dataTransfer.setData('text/plain', item.address); event.dataTransfer.effectAllowed = 'copy';
+      });
+      row.append(top, address, source, copy, replace, remove); list.appendChild(row);
+    });
+  }
   function isBusy(state) { return state.status === 'starting' || state.status === 'stopping'; }
   function isActive(state) { return state.status === 'running' || isBusy(state); }
   function stateLabel(state) {
@@ -161,6 +255,7 @@
     var fit = new window.FitAddon.FitAddon(); terminal.loadAddon(fit); terminal.open(mount.querySelector('.terminal-mount'));
     var state = { workspaceId: view.config.id, slot: slot, tabId: tabConfig.id, layer: mount, terminal: terminal, fit: fit,
       status: 'idle', generation: null, pid: null, exitCode: null, hasOutput: false, clearOnStarted: false };
+    resetCaptureScanner(state);
     view.panes[slot].tabs.push(state);
     terminal.onData(function (data) { if (state.status === 'running' && hostReady) send(withGeneration(state, { type: 'input', data: data })); });
     terminal.onResize(function (size) { if (isActive(state) && hostReady) send(withGeneration(state, { type: 'resize', cols: size.cols, rows: size.rows })); });
@@ -182,11 +277,14 @@
       if (event.target.closest('button')) { startSlot(view, slot, state.tabId, false); return; }
       markFocused(view, slot, state.tabId);
     });
-    mount.addEventListener('dragover', function (event) { if (hasDataType(event.dataTransfer, 'application/x-terminalgrid-command')) event.preventDefault(); });
+    mount.addEventListener('dragover', function (event) { if (hasDataType(event.dataTransfer, 'application/x-terminalgrid-command') || hasDataType(event.dataTransfer, 'application/x-terminalgrid-value')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } });
     mount.addEventListener('drop', function (event) {
-      var value = event.dataTransfer && (event.dataTransfer.getData('application/x-terminalgrid-command') || event.dataTransfer.getData('text/plain'));
-      if (!value || !hasDataType(event.dataTransfer, 'application/x-terminalgrid-command')) return;
-      event.preventDefault(); insertCommand(state, value);
+      var captured = hasDataType(event.dataTransfer, 'application/x-terminalgrid-value');
+      var value = event.dataTransfer && event.dataTransfer.getData(captured ? 'application/x-terminalgrid-value' : 'application/x-terminalgrid-command');
+      if (!value || (!captured && !hasDataType(event.dataTransfer, 'application/x-terminalgrid-command'))) return;
+      event.preventDefault(); event.stopPropagation();
+      if (captured && !validCaptureText(value)) return;
+      markFocused(view, slot, state.tabId); insertCommand(state, value, captured);
     });
     if (terminal.textarea) terminal.textarea.setAttribute('aria-label', '第 ' + (slot + 1) + ' 格 ' + tabConfig.name + ' 可操作終端');
     return state;
@@ -234,6 +332,8 @@
     return view;
   }
   function destroyViews() {
+    draftTarget = null;
+    capturedValues = []; queueCaptureRender();
     views.forEach(function (view) {
       view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { try { state.terminal.dispose(); } catch (_) { } }); });
       view.grid.remove();
@@ -292,7 +392,7 @@
       if (!accepted) return;
       if (view) {
         view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { if (isActive(state)) send(withGeneration(state, { type: 'stop' })); }); });
-        view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { try { state.terminal.dispose(); } catch (_) { } }); });
+        view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { pruneCaptures(state); try { state.terminal.dispose(); } catch (_) { } }); });
         view.grid.remove(); views = views.filter(function (x) { return x !== view; });
       }
       appConfig.workspaces = appConfig.workspaces.filter(function (w) { return w.id !== id; });
@@ -374,7 +474,7 @@
     askConfirmation('移除終端分頁？', '「' + (getTabConfig(view.config, slot, tabId).name) + '」中的執行中程序也會結束。', '移除分頁').then(function (accepted) {
       if (!accepted) return;
       if (isActive(state)) send(withGeneration(state, { type: 'stop' }));
-      state.terminal.dispose(); state.layer.remove();
+      pruneCaptures(state); state.terminal.dispose(); state.layer.remove();
       cell.tabs = cell.tabs.filter(function (s) { return s !== state; });
       cell.config.tabs = cell.config.tabs.filter(function (t) { return t.id !== tabId; });
       if (cell.config.activeTabId === tabId) cell.config.activeTabId = cell.config.tabs[0].id;
@@ -569,12 +669,12 @@
     if (state.status !== 'running') return;
     state.terminal.paste(value); state.terminal.focus();
   }
-  async function insertCommand(state, value) {
+  async function insertCommand(state, value, captured) {
     if (!state || state.status !== 'running') { showToast('請先啟動要插入指令的終端分頁。'); return; }
     if (/[\r\n]/.test(value)) { showToast('指令包只接受單行指令；請編輯指令內容後重試。', true); return; }
     if (value.length > 16000) { showToast('指令超過 16,000 字元。', true); return; }
     state.terminal.paste(value); state.terminal.focus();
-    showToast('指令已插入，請檢查後自行按 Enter 執行。');
+    showToast((captured ? '暫存文字已插入' : '指令已插入') + '，請檢查後自行按 Enter 執行。');
   }
   function isStale(state, message, allowNew) {
     if (typeof message.generation !== 'number' || state.generation === null) return false;
@@ -614,6 +714,7 @@
     }
     if (message.type === 'started') {
       if (isStale(state, message, true)) return;
+      pruneCaptures(state); resetCaptureScanner(state);
       if (typeof message.generation === 'number') state.generation = message.generation;
       if (state.clearOnStarted) { state.terminal.reset(); state.hasOutput = false; }
       state.clearOnStarted = false; state.status = 'running'; state.pid = message.pid || null; state.exitCode = null;
@@ -633,11 +734,14 @@
         for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         var gen = message.generation, size = bytes.length;
         state.terminal.write(bytes, function () { send({ type: 'ack', workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, bytes: size, generation: gen }); });
+        try { if ($('captureEnabled').checked) state.captureScanner.feed(state.captureDecoder.decode(bytes, { stream: true })); }
+        catch (_) { resetCaptureScanner(state); setStatus('IPv6 擷取已重設；終端輸出繼續顯示。'); }
         if (!state.hasOutput) { state.hasOutput = true; renderPane(view, state.slot); }
       } catch (_) { setStatus('無法解碼終端輸出。'); }
       return;
     }
     if (message.type === 'exited') {
+      try { if ($('captureEnabled').checked) { state.captureScanner.feed(state.captureDecoder.decode()); state.captureScanner.flush(); } } catch (_) { resetCaptureScanner(state); }
       state.status = 'exited'; state.pid = null; state.exitCode = typeof message.exitCode === 'number' ? message.exitCode : null;
       renderPane(view, state.slot); updateCounts(); return;
     }
@@ -926,6 +1030,9 @@
     function add(label, action) { var button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', function () { menu.hidden = true; action(); }); menu.appendChild(button); }
     add('複製選取文字', function () { copySelection(state); });
     add('貼上剪貼簿', function () { pasteClipboard(state); });
+    add('暫存選取文字', function () { saveCaptureText(state.terminal.getSelection(), state); });
+    add('編輯選取指令', function () { openCommandDraft(state); });
+    add('開啟資料暫存區…', function () { setCapturePanel(true); });
     var separator = document.createElement('div'); separator.className = 'context-separator'; menu.appendChild(separator);
     add('開啟指令庫…', function () { $('commandDialog').showModal(); });
     var menuItems = 0;
@@ -936,8 +1043,7 @@
         add('插入：' + command.name, function () { insertCommand(state, command.command); });
       });
     });
-    menu.hidden = false; menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 8) + 'px';
-    menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 8) + 'px';
+    positionContextMenu(menu, x, y);
   }
   function importDroppedFiles(files) {
     var queue = Array.prototype.slice.call(files || []);
@@ -957,11 +1063,31 @@
   }
 
   function initialize() {
-    if (typeof window.Terminal !== 'function' || !window.FitAddon) {
+    if (typeof window.Terminal !== 'function' || !window.FitAddon || !window.TerminalGridIPv6 || !window.TerminalGridDraft) {
       $('connectionDot').className = 'connection-dot failed'; $('connectionText').textContent = '終端元件載入失敗';
       showToast('缺少本機終端元件。請完整解壓縮套件，再啟動 TerminalGridIntegrated.exe。', true); return;
     }
     var initial = normalizeAppConfig(null); initial.workspaces.forEach(createView); activateWorkspace(initial.activeWorkspaceId);
+    commandDraft = window.TerminalGridDraft.create({ container: $('commandDraftHost'), getValues: function () { return capturedValues; }, onStatus: showToast, onResize: scheduleFit,
+      onSend: function (text) {
+        var state = draftTarget && draftTarget.state;
+        if (!state || getState(state.workspaceId, state.slot, state.tabId) !== state || state.generation !== draftTarget.generation || state.status !== 'running') {
+          showToast('草稿目標已結束或重新啟動；請選取終端後重新開啟草稿以指定目標。', true); return;
+        }
+        activateWorkspace(state.workspaceId); var view = getView(state.workspaceId); view.panes[state.slot].config.activeTabId = state.tabId;
+        renderPane(view, state.slot); markFocused(view, state.slot, state.tabId); scheduleFit(); insertCommand(state, text);
+      } });
+    $('draftButton').addEventListener('click', function () { openCommandDraft(focused && focused.state); });
+    $('captureValueForm').addEventListener('submit', function (event) { event.preventDefault(); if (saveCaptureText($('captureValueInput').value)) $('captureValueInput').value = ''; });
+    $('captureButton').addEventListener('click', function () { setCapturePanel($('capturePanel').hidden); });
+    $('closeCaptureButton').addEventListener('click', function () { setCapturePanel(false); });
+    $('clearCapturesButton').addEventListener('click', function () { capturedValues = []; renderCaptures(); });
+    $('captureEnabled').addEventListener('change', function () {
+      views.forEach(function (view) { view.panes.forEach(function (cell) { cell.tabs.forEach(resetCaptureScanner); }); });
+      showToast(this.checked ? '已啟用 IPv6 自動擷取。' : '已暫停 IPv6 擷取；現有紀錄會保留。');
+    });
+    renderCaptures();
+    document.addEventListener('dragend', function () { if (captureDragging) { captureDragging = false; renderCaptures(); } });
     $('saveButton').disabled = true; $('exportButton').disabled = true; $('importButton').disabled = true;
     $('presetSelect').addEventListener('change', function (event) { if (event.target.value === 'custom') return; var d = event.target.value.split('x'); activeView.config.rows = Number(d[0]); activeView.config.cols = Number(d[1]); activeView.zoomedSlot = null; applyLayout(activeView); queueSave(); });
     ['rowSelect', 'colSelect'].forEach(function (id) { $(id).addEventListener('change', function () {

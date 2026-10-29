@@ -8,12 +8,13 @@
   <link rel="stylesheet" href="vendor/xterm.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="v3.css">
+  <link rel="stylesheet" href="command-draft.css">
 </head>
 <body>
   <div id="app">
     <header class="app-header">
       <div class="brand"><span class="brand-mark" aria-hidden="true">›_</span><div><h1>Terminal Grid</h1><p>整合式終端管理器</p></div><span class="local-tag">本機執行</span></div>
-      <div class="header-actions"><button id="helpButton" class="button quiet" title="使用說明">使用說明</button><button id="flowButton" class="button">自動化</button><button id="commandButton" class="button">指令庫</button><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="saveButton" class="button">儲存配置</button></div>
+      <div class="header-actions"><button id="helpButton" class="button quiet" title="使用說明">使用說明</button><button id="flowButton" class="button">自動化</button><button id="captureButton" class="button" aria-expanded="false" aria-controls="capturePanel">資料暫存 <span id="captureCount">0</span></button><button id="commandButton" class="button">指令庫</button><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="saveButton" class="button">儲存配置</button></div>
     </header>
     <nav class="workspace-bar" aria-label="工作區分頁"><div id="workspaceTabs" class="workspace-tabs" role="tablist"></div><button id="addWorkspaceButton" class="button workspace-add" title="新增工作區">＋ 新工作區</button></nav>
     <section class="toolbar" aria-label="終端排列與控制">
@@ -23,7 +24,18 @@
       <div class="toolbar-spacer"></div><div class="toolbar-group clipboard-group"><button id="copyButton" class="button quiet" title="複製目前終端的選取文字 (Ctrl+Shift+C)">複製</button><button id="pasteButton" class="button quiet" title="貼上到目前終端 (Ctrl+Shift+V)">貼上</button></div>
       <button id="hiddenButton" class="button hidden-warning" hidden></button><button id="unzoomButton" class="button" hidden>返回網格 <kbd>Esc</kbd></button><button id="startAllButton" class="button primary"><span aria-hidden="true">▶</span> 啟動可見終端</button>
     </section>
-    <div id="workspaceHost" class="workspace-host"></div>
+    <div class="terminal-content">
+      <div class="terminal-stack"><div id="workspaceHost" class="workspace-host"></div><div id="commandDraftHost" class="command-draft-host" hidden></div></div>
+      <aside id="capturePanel" class="capture-panel" aria-labelledby="captureTitle" hidden>
+        <div class="capture-heading"><div><span class="eyebrow">CAPTURED VALUES</span><h2 id="captureTitle">資料暫存與指令草稿</h2></div><button id="closeCaptureButton" class="icon-button" aria-label="收合資料暫存區">×</button></div>
+        <div class="capture-controls"><label><input id="captureEnabled" type="checkbox" checked>自動擷取 IPv6</label><button id="clearCapturesButton" class="button quiet">清空</button></div>
+        <form id="captureValueForm" class="capture-add"><input id="captureValueInput" maxlength="4096" placeholder="設備名稱、IP 或其他文字" aria-label="手動暫存文字" autocomplete="off" spellcheck="false"><button id="addCaptureValueButton" type="submit" class="button">加入</button></form>
+        <button id="draftButton" class="button quiet">編輯選取指令／開啟草稿</button>
+        <div id="captureList" class="capture-list" aria-label="最近暫存的位址與文字"></div>
+        <p id="captureEmpty" class="capture-empty">執行 ifconfig、adb shell ifconfig、ip -6 addr 或 ipconfig 後，IPv6 會出現在這裡。</p>
+        <details class="capture-details"><summary>使用方式與紀錄範圍</summary><p class="capture-hint">右鍵複製或替換草稿中的選取文字。拖到終端會插入；拖到草稿會替換框選部分。不會自動執行。</p><p class="capture-footnote">最近 80 筆，新位址在前；舊紀錄可能已失效。僅保留本次開啟期間。<br>fe80 位址可能需要接收端的 %介面；不會自動套用來源裝置的介面。</p></details>
+      </aside>
+    </div>
     <footer class="statusbar"><div class="status-left"><span id="connectionDot" class="connection-dot"></span><span id="connectionText">正在連接終端引擎…</span><span class="status-separator">│</span><span id="sessionCount">0 個執行中</span><span id="layoutStatus">2 × 2</span></div><div id="statusMessage" role="status" aria-live="polite">配置只儲存設定；啟動終端才會執行指令。</div><span class="keyboard-hint"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C / V</kbd> 複製／貼上</span></footer>
   </div>
 
@@ -60,6 +72,8 @@
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
+  <script src="ipv6-capture.js"></script>
+  <script src="command-draft.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

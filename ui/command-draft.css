@@ -1,0 +1,20 @@
+.command-draft{position:relative;display:flex;flex-direction:column;gap:8px;min-width:0;padding:13px 12px;border-top:1px solid #314158;background:#121d2c}
+.command-draft-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.command-draft-title{font-size:12px;font-weight:600;color:#cbdee9;white-space:nowrap}
+.command-draft-target{font-size:10px;color:#85aaa8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;text-align:right}
+.command-draft-text{display:block;width:100%;min-height:76px;max-height:210px;resize:vertical;line-height:1.6;font:12px/1.6 Consolas,"Microsoft JhengHei",monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#0d1623;border-color:#3a4e66}
+.command-draft-text.is-value-drop{border-color:#78e2d8;box-shadow:0 0 0 2px #68d4c92e}
+.command-draft-hint{font-size:10px;line-height:1.7;color:#8ba1b9;margin:0}
+.command-draft-actions{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.command-draft-actions .button{font-size:11px;min-height:29px;padding:5px 8px;flex:1}
+.command-draft-menu{display:flex;flex-direction:column;gap:3px;max-height:220px;overflow:auto;border:1px solid #4b627f;background:#162436;border-radius:6px;padding:5px;box-shadow:0 8px 20px #0004}
+.command-draft-value{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;flex:none;width:100%;padding:7px 8px;background:transparent;border:1px solid transparent;border-radius:4px;text-align:left}
+.command-draft-value:hover,.command-draft-value:focus-visible{background:#23424d;border-color:#4f858d}
+.command-draft-value-text{max-width:100%;font:11px/1.5 Consolas,"Microsoft JhengHei",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#c2f2e9}
+.command-draft-value-source{max-width:100%;font-size:9px;color:#94a9c0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.command-draft-menu-empty{margin:6px;font-size:11px;color:#91a5bd;line-height:1.6}
+.command-draft-heading .icon-button{width:22px;height:22px;font-size:19px;flex:none}
+.command-draft-target{flex:1}
+.command-draft-actions .button{flex:0 1 auto;min-width:150px}
+.command-draft-menu{position:absolute;left:12px;right:12px;bottom:52px;z-index:90}
+@media(max-height:750px){.command-draft{padding:8px 12px;gap:5px}.command-draft-text{height:58px;min-height:58px;max-height:85px}.command-draft-hint{font-size:9px}.command-draft-actions .button{min-height:26px;padding:3px 8px}}
