@@ -22,6 +22,13 @@ Optional frontend integration checks require a separately installed Playwright m
 
 ```powershell
 node tests/CaptureUiTests.js
+node tests/EditingUiTests.js
 ```
 
 Use the normal Node module resolution or set `NODE_PATH` to an existing approved module directory. These checks use isolated headless browser profiles and mock host/clipboard objects. They verify the real UI scripts, real xterm input integration, selection replacement, source/generation isolation and no-Enter paste behavior, but do not verify native WebView2 clipboard access or real Wi-Fi Aware devices. Local diagnostic screenshots remain in `.test-work/` and are excluded from release packages.
+
+## 3.3.0 輸入與替換測試
+
+`EditingUiTests.js` 使用真實 Edge／xterm、模擬原生訊息橋與剪貼簿，檢查快捷鍵是否取消瀏覽器預設重複貼上、連按與按住的差異、複製與中斷、工作階段切換期間的非同步貼上，以及單行輸入列的選取刪除、游標插入、手動替換、暫存建議與拖入。也涵蓋分頁隔離、Enter 與「貼入」的送出差異，以及較小視窗的操作。
+
+此測試不會改寫 Windows 系統剪貼簿，也不能代替實際 WebView2／作業系統剪貼簿驗收。執行結果記錄於 [驗證紀錄](../驗證紀錄.md)。

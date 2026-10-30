@@ -209,7 +209,7 @@ async function main() {
     const generic = page.locator('.capture-item[data-address="' + savedValue + '"]');
     assert.match(await generic.innerText(), /手動暫存/);
     await generic.click({ button: 'right' });
-    await page.locator('#terminalContextMenu').getByRole('button', { name: '替換草稿中的選取文字', exact: true }).click();
+    await page.locator('#terminalContextMenu').getByRole('button', { name: '替換目前框選文字', exact: true }).click();
     assert.equal(await page.locator('#commandDraftText').inputValue(), 'ping new-host.internal -n 2');
     passed('a manually saved generic value replaces only the draft selection after focus moves to the shelf');
 

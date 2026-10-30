@@ -1,27 +1,23 @@
-# Terminal Grid 3.2.0
+# Terminal Grid 3.3.0
 
-3.2.0 adds a local value shelf and editable command drafts for repeated network and device tests.
+3.3.0 改善鍵盤複製貼上，並讓每個終端分頁都能先編輯指令，再貼入或執行。
 
-- Automatically capture IPv6 from recognized `inet6` / `IPv6` output lines, including common ifconfig, Android/ADB, ip -6 addr and ipconfig formats. Records include source workspace, terminal slot, interface and time.
-- Keep the latest 80 records in memory, deduplicate repeated source/address pairs, copy from a context menu or button, and drag values into an active terminal without pressing Enter. Older records may no longer be valid.
-- Manually save a selected device name, IPv4 address or other single-line value to the same shelf.
-- Bring a selected command into a draft, select A in `ping A`, and replace only that selection with saved B via drag, context menu or Replace. Review the result before pasting it into the original terminal.
-- Keep the draft target fixed even when focus moves to another terminal. Reject sends after the target terminal is stopped, removed or restarted.
-- Retain explicit IPv6 scope suffixes, remove CIDR prefix lengths, and never infer a ping scope from a remote source interface.
-- Handle split UTF-8 output and ANSI control sequences with bounded parsing; captures and drafts are excluded from saved/exported configuration.
+- 修正終端快捷鍵與瀏覽器預設貼上可能同時觸發、造成文字重複的問題。支援 `Ctrl+V`、`Ctrl+Shift+V`、`Shift+Insert`，並忽略按住快捷鍵產生的重複事件。
+- 終端有選取文字時，`Ctrl+C` 會複製；沒有選取文字時保留程式中斷功能。等待剪貼簿回應期間若終端重新啟動，舊貼上不會送到新工作階段。
+- 每個終端分頁新增單行輸入列，可用滑鼠框選、Backspace／Delete 刪除、剪下與在任意游標位置貼上。Enter 送出文字及 Enter；「貼入」只貼文字，不執行。
+- 輸入列與指令草稿共用右鍵編輯選單：手動輸入或貼上替換文字，或選用最近暫存的 IPv6、IPv4、設備名稱等文字。同類型建議優先顯示，其他類型仍可選用。也支援從側欄拖入選取範圍；沒有選取時插入記住的游標位置。
+- 終端歷史輸出可右鍵「帶到本格輸入列編輯」。每個分頁以方向鍵上／下重用最近 50 筆已送出或貼入的文字。
 
-Terminal history itself is read-only; replacement happens in the draft. Pasting appends at the destination terminal cursor and does not clear existing input or execute it. Automatic capture is format-based, not a live inventory of device connectivity. Real Wi-Fi Aware reconnection testing remains device-dependent.
+編輯與替換會在輸入列或草稿內完成，原終端輸出保留供查閱。輸入列、輸入紀錄、草稿與資料暫存不會寫入或匯出配置。送出或貼入時會接續終端目前已有的輸入，請先確認終端的輸入位置。
 
-## Download and update
+## 下載與更新
 
-Download the Windows x64 ZIP from the GitHub Releases page, extract all files to a folder, and run `TerminalGridIntegrated.exe`. Keep the WebView2 DLLs and `ui` folder beside the executable.
+從 GitHub Releases 下載 Windows x64 ZIP，完整解壓縮後執行 `TerminalGridIntegrated.exe`，並保留旁邊的 DLL 與 `ui` 資料夾。需要 64 位元 Windows 10 1809 以上、.NET Framework 4.8 與 Microsoft Edge WebView2 Runtime。隨附 `.sha256` 檔可用於檢查 ZIP 完整性。
 
-For this working copy, `UpdateAndLaunch.ps1` builds the new version to a staging path, asks the previous process to close, replaces the executable, and starts the new version. It does not force-terminate the old process; if an active terminal prompts for confirmation, confirm in the app so the update can continue.
+本機原始碼工作副本可執行 `UpdateAndLaunch.ps1`：先建置新版，再關閉此資料夾啟動的舊版、替換程式並啟動。若舊版仍有工作階段，請在應用程式內確認結束；更新腳本不會強制結束程序。
 
-Requires 64-bit Windows 10 1809 or later, .NET Framework 4.8, and Microsoft Edge WebView2 Runtime. The `.sha256` file contains the release ZIP checksum.
+## 驗證與授權
 
-## License and company environment
+本版驗證進度與範圍見 [驗證紀錄](驗證紀錄.md)，測試方式見 [tests/README.md](tests/README.md)。
 
-The project-authored source is provided under the MIT License; third-party components retain their own licenses and notices. The executable is not Authenticode-signed. Public availability and MIT licensing do not constitute internal security approval. The application does not elevate privileges; child shells inherit the permissions of the launching user. Follow company software and endpoint approval requirements before use.
-
-Closing the main window ends the integrated terminal sessions and their child processes after confirmation. The application does not attach to pre-existing CMD, PowerShell, Windows Terminal, ADB, or scrcpy windows.
+專案自行撰寫的原始碼使用 MIT 授權；第三方元件保留各自授權與聲明。EXE 目前未簽署 Authenticode。公開發布與 MIT 授權不代表公司內部資安核准；工具使用啟動者的權限執行 Shell。

@@ -1,0 +1,15 @@
+.text-edit-menu{position:fixed;z-index:250;display:flex;flex-direction:column;gap:6px;max-width:calc(100vw - 16px);max-height:min(450px,calc(100vh - 16px));overflow:auto;padding:10px;border:1px solid #4e6886;border-radius:8px;background:#142334;color:#d8e7f6;box-shadow:0 10px 32px #0009;font:12px/1.5 "Segoe UI","Microsoft JhengHei UI",sans-serif}
+.text-edit-menu[hidden]{display:none!important}
+.text-edit-actions{display:flex;gap:4px;flex-wrap:wrap;padding-bottom:5px;border-bottom:1px solid #34485e}
+.text-edit-action{min-height:28px;padding:4px 10px;border:1px solid #3e566f;border-radius:5px;background:#21364a;color:#d9e8f4;font:inherit;cursor:pointer}
+.text-edit-action:hover:enabled,.text-edit-suggestion:hover{background:#2d4d61;border-color:#6da4b5}
+.text-edit-action:disabled{opacity:.45;cursor:default}
+.text-edit-label{display:flex;flex-direction:column;gap:4px;margin:0;color:#a5bdd2;font-size:11px}
+.text-edit-replacement{display:block;min-width:0;width:100%;padding:6px 8px;border:1px solid #45617c;border-radius:4px;background:#0c1827;color:#e2edf7;font:12px/1.5 Consolas,"Microsoft JhengHei",monospace}
+.text-edit-apply{align-self:flex-end;background:#254c53;color:#c6f8f0;border-color:#4c898e}
+.text-edit-suggestion{display:flex;flex-direction:column;align-items:flex-start;gap:2px;flex:none;min-width:0;width:100%;padding:6px 8px;border:1px solid transparent;border-radius:4px;background:#1a2c40;color:#d8eaf7;text-align:left;cursor:pointer}
+.text-edit-value{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px/1.5 Consolas,"Microsoft JhengHei",monospace;color:#bceee4}
+.text-edit-source{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#8fa7c1}
+.text-edit-empty{margin:2px;color:#93aabd;font-size:11px;line-height:1.6}
+.text-edit-menu button:focus-visible,.text-edit-replacement:focus-visible{outline:2px solid #78dbd1;outline-offset:1px}
+input.is-value-drop,textarea.is-value-drop{border-color:#78e2d8!important;box-shadow:0 0 0 2px #68d4c92e}

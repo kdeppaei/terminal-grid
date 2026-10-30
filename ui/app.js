@@ -9,7 +9,7 @@
   var toastTimer = null, confirmation = null, currentFlowId = null, flowRunning = false;
   var workspaceEditingId = null, packEditingId = null, commandEditingRef = null, flowPauseResolve = null;
   var capturedValues = [], captureRenderTimer = null, captureAutoOpened = false, captureDragging = false;
-  var commandDraft = null, draftTarget = null;
+  var commandDraft = null, draftTarget = null, focusedEditor = null;
   var $ = function (id) { return document.getElementById(id); };
   var workspaceHost = $('workspaceHost');
 
@@ -187,13 +187,22 @@
     setCapturePanel(true); $('commandDraftHost').hidden = false;
     commandDraft.open(selection || (existing ? existing.value : ''), workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name);
   }
+  function replaceFocusedText(value) {
+    if (focusedEditor && focusedEditor.state) {
+      var state = focusedEditor.state;
+      if (getState(state.workspaceId, state.slot, state.tabId) === state && !state.lineInput.disabled) {
+        state.lineEditor.insert(value, true); return;
+      }
+    }
+    commandDraft.replaceSelection(value);
+  }
   function showCaptureMenu(event, item) {
     event.preventDefault();
     var menu = $('terminalContextMenu'); menu.textContent = '';
     var copy = document.createElement('button'); copy.type = 'button'; copy.textContent = '複製暫存文字';
     copy.addEventListener('click', function () { menu.hidden = true; copyCapture(item); });
-    var replace = document.createElement('button'); replace.type = 'button'; replace.textContent = '替換草稿中的選取文字';
-    replace.addEventListener('click', function () { menu.hidden = true; commandDraft.replaceSelection(item.address); });
+    var replace = document.createElement('button'); replace.type = 'button'; replace.textContent = '替換目前框選文字';
+    replace.addEventListener('click', function () { menu.hidden = true; replaceFocusedText(item.address); });
     menu.append(copy, replace); positionContextMenu(menu, event.clientX, event.clientY);
   }
   function positionContextMenu(menu, x, y) {
@@ -215,8 +224,8 @@
       var source = document.createElement('p'); source.className = 'capture-source'; source.textContent = item.source + (item.interfaceName ? ' · ' + item.interfaceName : ''); source.title = source.textContent;
       var copy = document.createElement('button'); copy.type = 'button'; copy.className = 'button quiet capture-copy'; copy.textContent = '複製'; copy.setAttribute('aria-label', '複製 ' + item.address);
       copy.addEventListener('click', function () { copyCapture(item); });
-      var replace = document.createElement('button'); replace.type = 'button'; replace.className = 'button quiet capture-replace'; replace.textContent = '替換'; replace.title = '替換指令草稿中框選的文字';
-      replace.addEventListener('click', function () { commandDraft.replaceSelection(item.address); });
+      var replace = document.createElement('button'); replace.type = 'button'; replace.className = 'button quiet capture-replace'; replace.textContent = '替換'; replace.title = '替換輸入列或指令草稿中框選的文字';
+      replace.addEventListener('click', function () { replaceFocusedText(item.address); });
       var remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-button capture-remove'; remove.textContent = '×'; remove.setAttribute('aria-label', '移除 ' + item.address);
       remove.addEventListener('click', function () { capturedValues = capturedValues.filter(function (value) { return value !== item; }); renderCaptures(); });
       row.addEventListener('contextmenu', function (event) { showCaptureMenu(event, item); });
@@ -241,6 +250,68 @@
     var w = normalizeWorkspace({ id: uid('workspace'), name: '工作區 ' + (index + 1) }, index);
     return w;
   }
+  function validLineText(value) {
+    return typeof value === 'string' && value.length <= 16000 && !/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(value);
+  }
+  function sameSession(state, generation) {
+    return state.status === 'running' && state.generation === generation && getState(state.workspaceId, state.slot, state.tabId) === state;
+  }
+  function createLineEditor(state, view, tabConfig) {
+    var editor = document.createElement('div'); editor.className = 'pane-line-editor';
+    var input = document.createElement('input'); input.type = 'text'; input.className = 'pane-line-input'; input.maxLength = 16000;
+    input.placeholder = '輸入列 · 可框選編輯，Enter 送出'; input.spellcheck = false; input.autocomplete = 'off';
+    input.setAttribute('aria-label', '第 ' + String(state.slot + 1).padStart(2, '0') + ' 格 ' + tabConfig.name + ' 可編輯指令');
+    input.title = '在這裡點選任意位置、框選刪除或貼上。Enter 傳送文字與換行；貼入只傳送文字。';
+    var paste = document.createElement('button'); paste.type = 'button'; paste.className = 'button line-send'; paste.textContent = '貼入';
+    paste.title = '貼到終端游標，不按 Enter；若終端已有輸入會接在後面';
+    var interrupt = document.createElement('button'); interrupt.type = 'button'; interrupt.className = 'icon-button line-interrupt'; interrupt.textContent = '■';
+    interrupt.title = '中斷目前程式（Ctrl+C）'; interrupt.setAttribute('aria-label', '中斷目前程式');
+    editor.append(input, paste, interrupt); state.layer.appendChild(editor);
+    state.lineInput = input; state.lineEditorElement = editor; state.lineHistory = []; state.lineHistoryIndex = 0; state.lineDraft = '';
+    state.lineEditor = window.TerminalGridTextEdit.attach(input, { getValues: function () { return capturedValues; }, onStatus: showToast });
+    input.addEventListener('focus', function () { focusedEditor = { state: state }; });
+    function deliver(enter) {
+      if (!hostReady || !sameSession(state, state.generation)) { showToast('請先啟動這個終端分頁。'); return; }
+      var value = input.value;
+      if (!value || !validLineText(value)) { showToast('輸入列只接受單行文字，最多 16,000 字元。', true); return; }
+      if (enter) send(withGeneration(state, { type: 'input', data: value + '\r' }));
+      else state.terminal.paste(value);
+      if (state.lineHistory[state.lineHistory.length - 1] !== value) state.lineHistory.push(value);
+      if (state.lineHistory.length > 50) state.lineHistory.shift();
+      state.lineHistoryIndex = state.lineHistory.length; state.lineDraft = ''; input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (!enter) { state.terminal.focus(); showToast('已貼到終端游標，請檢查後自行按 Enter。'); }
+      else input.focus();
+    }
+    input.addEventListener('keydown', function (event) {
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) deliver(true); }
+      if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
+        event.preventDefault();
+        if (state.lineHistoryIndex === state.lineHistory.length) state.lineDraft = input.value;
+        state.lineHistoryIndex = Math.max(0, Math.min(state.lineHistory.length, state.lineHistoryIndex + (event.key === 'ArrowUp' ? -1 : 1)));
+        input.value = state.lineHistoryIndex === state.lineHistory.length ? state.lineDraft : state.lineHistory[state.lineHistoryIndex];
+        input.setSelectionRange(input.value.length, input.value.length);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+    input.addEventListener('input', function () { if (state.lineHistoryIndex === state.lineHistory.length) state.lineDraft = input.value; });
+    paste.addEventListener('click', function () { deliver(false); });
+    interrupt.addEventListener('click', function () { if (sameSession(state, state.generation)) send(withGeneration(state, { type: 'input', data: '\x03' })); });
+    ['click', 'contextmenu', 'dragover', 'drop'].forEach(function (name) {
+      editor.addEventListener(name, function (event) { event.stopPropagation(); });
+    });
+  }
+  function editTerminalSelection(state) {
+    var selection = state.terminal.getSelection();
+    if (!selection || !validLineText(selection)) { showToast('請選取一整行指令（不含提示字元），再帶入輸入列。', true); return; }
+    state.lineInput.value = selection; state.lineInput.focus(); state.lineInput.select();
+    state.lineInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function disposeTerminal(state) {
+    if (state.lineEditor) state.lineEditor.dispose();
+    try { state.terminal.dispose(); } catch (_) { }
+  }
   function makeTerminal(view, slot, tabConfig) {
     var mount = document.createElement('div');
     mount.className = 'terminal-layer';
@@ -257,11 +328,22 @@
       status: 'idle', generation: null, pid: null, exitCode: null, hasOutput: false, clearOnStarted: false };
     resetCaptureScanner(state);
     view.panes[slot].tabs.push(state);
+    createLineEditor(state, view, tabConfig);
     terminal.onData(function (data) { if (state.status === 'running' && hostReady) send(withGeneration(state, { type: 'input', data: data })); });
     terminal.onResize(function (size) { if (isActive(state) && hostReady) send(withGeneration(state, { type: 'resize', cols: size.cols, rows: size.rows })); });
     terminal.attachCustomKeyEventHandler(function (event) {
-      if (event.ctrlKey && event.shiftKey && !event.altKey && (event.code === 'KeyC' || event.code === 'KeyV')) {
-        if (event.type === 'keydown') { if (event.code === 'KeyC') copySelection(state); else pasteClipboard(state); }
+      var control = event.ctrlKey && !event.altKey && !event.metaKey;
+      var pasteKey = (control && event.code === 'KeyV') || (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'Insert');
+      var copyKey = control && event.code === 'KeyC' && (event.shiftKey || state.terminal.hasSelection());
+      if (pasteKey || copyKey) {
+        // Returning false stops xterm, but not the browser's native paste.
+        event.preventDefault(); event.stopPropagation();
+        if (event.type === 'keydown' && !event.repeat) { if (copyKey) copySelection(state); else pasteClipboard(state); }
+        return false;
+      }
+      if ((event.code === 'Backspace' || event.code === 'Delete') && state.terminal.hasSelection()) {
+        event.preventDefault(); event.stopPropagation();
+        if (event.type === 'keydown' && !event.repeat) showToast('框選的是終端輸出；請右鍵「帶到本格輸入列編輯」，再刪除或替換。');
         return false;
       }
       return true;
@@ -274,7 +356,7 @@
       event.preventDefault(); markFocused(view, slot, state.tabId); showTerminalMenu(event.clientX, event.clientY, state);
     });
     mount.addEventListener('click', function (event) {
-      if (event.target.closest('button')) { startSlot(view, slot, state.tabId, false); return; }
+      if (event.target.closest('button[data-action="start"]')) { startSlot(view, slot, state.tabId, false); return; }
       markFocused(view, slot, state.tabId);
     });
     mount.addEventListener('dragover', function (event) { if (hasDataType(event.dataTransfer, 'application/x-terminalgrid-command') || hasDataType(event.dataTransfer, 'application/x-terminalgrid-value')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } });
@@ -319,7 +401,7 @@
       if (tab.shell === 'Custom' && !tab.exe.trim()) openSettings(view, index, state.tabId);
     });
     element.querySelector('.terminal-container').addEventListener('click', function (event) {
-      if (!event.target.closest('button')) { var state = activeState(view, index); if (state.status === 'running') state.terminal.focus(); }
+      if (!event.target.closest('button,input,textarea,.pane-line-editor')) { var state = activeState(view, index); if (state.status === 'running') state.terminal.focus(); }
     });
     renderPane(view, index);
   }
@@ -332,10 +414,10 @@
     return view;
   }
   function destroyViews() {
-    draftTarget = null;
+    draftTarget = null; focusedEditor = null;
     capturedValues = []; queueCaptureRender();
     views.forEach(function (view) {
-      view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { try { state.terminal.dispose(); } catch (_) { } }); });
+      view.panes.forEach(function (cell) { cell.tabs.forEach(disposeTerminal); });
       view.grid.remove();
     });
     views = []; activeView = null; focused = null;
@@ -392,7 +474,7 @@
       if (!accepted) return;
       if (view) {
         view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { if (isActive(state)) send(withGeneration(state, { type: 'stop' })); }); });
-        view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { pruneCaptures(state); try { state.terminal.dispose(); } catch (_) { } }); });
+        view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) { pruneCaptures(state); disposeTerminal(state); }); });
         view.grid.remove(); views = views.filter(function (x) { return x !== view; });
       }
       appConfig.workspaces = appConfig.workspaces.filter(function (w) { return w.id !== id; });
@@ -466,6 +548,10 @@
       exit.textContent = '已結束 · 結束碼 ' + (child.exitCode === null ? '—' : child.exitCode) + ' · 輸出已保留';
       child.terminal.options.disableStdin = child.status !== 'running';
       child.terminal.options.fontSize = view.config.fontSize;
+      child.lineInput.disabled = child.status !== 'running';
+      if (!selected || child.lineInput.disabled) child.lineEditor.closeMenu();
+      child.lineEditorElement.querySelector('.line-send').disabled = child.status !== 'running';
+      child.lineEditorElement.querySelector('.line-interrupt').disabled = child.status !== 'running';
     });
   }
   function removeTerminalTab(view, slot, tabId) {
@@ -474,7 +560,7 @@
     askConfirmation('移除終端分頁？', '「' + (getTabConfig(view.config, slot, tabId).name) + '」中的執行中程序也會結束。', '移除分頁').then(function (accepted) {
       if (!accepted) return;
       if (isActive(state)) send(withGeneration(state, { type: 'stop' }));
-      pruneCaptures(state); state.terminal.dispose(); state.layer.remove();
+      pruneCaptures(state); disposeTerminal(state); state.layer.remove();
       cell.tabs = cell.tabs.filter(function (s) { return s !== state; });
       cell.config.tabs = cell.config.tabs.filter(function (t) { return t.id !== tabId; });
       if (cell.config.activeTabId === tabId) cell.config.activeTabId = cell.config.tabs[0].id;
@@ -654,19 +740,30 @@
     try { await navigator.clipboard.writeText(selection); showToast('已複製終端文字。'); }
     catch (_) { showToast('無法使用剪貼簿，請檢查系統權限。', true); }
   }
-  async function pasteClipboard(state) {
-    if (state.status !== 'running') { showToast('請先啟動這個終端分頁。'); return; }
-    try { await pasteText(state, await navigator.clipboard.readText()); }
-    catch (_) { showToast('無法讀取剪貼簿，請檢查系統權限。', true); }
+  function pasteClipboard(state) {
+    if (state.status !== 'running') { showToast('請先啟動這個終端分頁。'); return Promise.resolve(); }
+    var generation = state.generation, read;
+    try { read = navigator.clipboard.readText(); } catch (_) { read = Promise.reject(new Error('clipboard')); }
+    // Start each read during the user's gesture, preserve deliberate paste order,
+    // and consume a rejection immediately while an earlier confirmation is open.
+    var result = Promise.resolve(read).then(function (value) { return { value: value }; }, function () { return { failed: true }; });
+    state.pasteQueue = (state.pasteQueue || Promise.resolve()).then(async function () {
+      var clipboard = await result;
+      if (!sameSession(state, generation)) return;
+      if (clipboard.failed) { showToast('無法讀取剪貼簿，請檢查系統權限。', true); return; }
+      await pasteText(state, clipboard.value, generation);
+    }).catch(function () { showToast('貼上未完成，請重試。', true); });
+    return state.pasteQueue;
   }
-  async function pasteText(state, value) {
-    if (!value || state.status !== 'running') return;
+  async function pasteText(state, value, expectedGeneration) {
+    var generation = expectedGeneration === undefined ? state.generation : expectedGeneration;
+    if (!value || !sameSession(state, generation)) return;
     if (value.length > 1048576) { showToast('剪貼簿文字超過 1 MB。', true); return; }
     if (/[\r\n]/.test(value)) {
       var preview = value.length > 500 ? value.slice(0, 500) + '\n…（僅顯示前 500 字）' : value;
       if (!(await askConfirmation('貼上多行文字？', '多行貼上可能執行指令，請先檢查內容。\n\n' + preview, '確認貼上'))) return;
     }
-    if (state.status !== 'running') return;
+    if (!sameSession(state, generation)) return;
     state.terminal.paste(value); state.terminal.focus();
   }
   async function insertCommand(state, value, captured) {
@@ -715,6 +812,7 @@
     if (message.type === 'started') {
       if (isStale(state, message, true)) return;
       pruneCaptures(state); resetCaptureScanner(state);
+      state.lineInput.value = ''; state.lineInput.dispatchEvent(new Event('input', { bubbles: true }));
       if (typeof message.generation === 'number') state.generation = message.generation;
       if (state.clearOnStarted) { state.terminal.reset(); state.hasOutput = false; }
       state.clearOnStarted = false; state.status = 'running'; state.pid = message.pid || null; state.exitCode = null;
@@ -1032,6 +1130,7 @@
     add('貼上剪貼簿', function () { pasteClipboard(state); });
     add('暫存選取文字', function () { saveCaptureText(state.terminal.getSelection(), state); });
     add('編輯選取指令', function () { openCommandDraft(state); });
+    add('帶到本格輸入列編輯', function () { editTerminalSelection(state); });
     add('開啟資料暫存區…', function () { setCapturePanel(true); });
     var separator = document.createElement('div'); separator.className = 'context-separator'; menu.appendChild(separator);
     add('開啟指令庫…', function () { $('commandDialog').showModal(); });
@@ -1063,7 +1162,7 @@
   }
 
   function initialize() {
-    if (typeof window.Terminal !== 'function' || !window.FitAddon || !window.TerminalGridIPv6 || !window.TerminalGridDraft) {
+    if (typeof window.Terminal !== 'function' || !window.FitAddon || !window.TerminalGridIPv6 || !window.TerminalGridDraft || !window.TerminalGridTextEdit) {
       $('connectionDot').className = 'connection-dot failed'; $('connectionText').textContent = '終端元件載入失敗';
       showToast('缺少本機終端元件。請完整解壓縮套件，再啟動 TerminalGridIntegrated.exe。', true); return;
     }
@@ -1077,6 +1176,7 @@
         activateWorkspace(state.workspaceId); var view = getView(state.workspaceId); view.panes[state.slot].config.activeTabId = state.tabId;
         renderPane(view, state.slot); markFocused(view, state.slot, state.tabId); scheduleFit(); insertCommand(state, text);
       } });
+    $('commandDraftText').addEventListener('focus', function () { focusedEditor = { draft: true }; });
     $('draftButton').addEventListener('click', function () { openCommandDraft(focused && focused.state); });
     $('captureValueForm').addEventListener('submit', function (event) { event.preventDefault(); if (saveCaptureText($('captureValueInput').value)) $('captureValueInput').value = ''; });
     $('captureButton').addEventListener('click', function () { setCapturePanel($('capturePanel').hidden); });
