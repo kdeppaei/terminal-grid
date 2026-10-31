@@ -50,6 +50,8 @@ try {
         Invoke-CheckedNative -Executable $folderTest -Arguments @($testResults)
         $nativeTest = Build-Test -Name 'PtySelfTest' -Sources @('source\PtySession.cs', 'tests\PtySelfTest.cs') -References @('System.dll', 'System.Core.dll')
         Invoke-CheckedNative -Executable $nativeTest -Arguments @($testResults)
+        $liveReplaceTest = Build-Test -Name 'LiveReplaceNativeTests' -Sources @('source\PtySession.cs', 'tests\LiveReplaceNativeTests.cs') -References @('System.dll', 'System.Core.dll')
+        Invoke-CheckedNative -Executable $liveReplaceTest -Arguments @((Join-Path $testResults 'live-replace'))
         if ($Stress) {
             $stressTest = Build-Test -Name 'PtyStressTest' -Sources @('source\PtySession.cs', 'tests\PtyStressTest.cs') -References @('System.dll', 'System.Core.dll')
             Invoke-CheckedNative -Executable $stressTest -Arguments @()

@@ -114,6 +114,10 @@
   }
   function send(message) {
     if (!host) return false;
+    if (message.type === 'input') {
+      var target = getState(message.workspaceId, message.slot, message.tabId);
+      if (target && target.liveReplace) { target.liveReplace.input(); target.liveIntent = false; }
+    }
     try { host.postMessage(message); return true; }
     catch (error) { showToast('無法連接終端引擎：' + error.message, true); return false; }
   }
@@ -186,8 +190,13 @@
     draftTarget = { state: state, generation: state.generation };
     setCapturePanel(true); $('commandDraftHost').hidden = false;
     commandDraft.open(selection || (existing ? existing.value : ''), workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name);
+    state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
   }
   function replaceFocusedText(value) {
+    if (focusedEditor && focusedEditor.draft && commandDraft.hasSelection()) { commandDraft.replaceSelection(value); return; }
+    if (focused && (focused.state.terminal.hasSelection() || focused.state.liveIntent) && !(focusedEditor && focusedEditor.state && focusedEditor.state.lineEditor.hasSelection())) {
+      replaceLiveSelection(focused.state, value); return;
+    }
     if (focusedEditor && focusedEditor.state) {
       var state = focusedEditor.state;
       if (getState(state.workspaceId, state.slot, state.tabId) === state && !state.lineInput.disabled) {
@@ -198,7 +207,7 @@
   }
   function showCaptureMenu(event, item) {
     event.preventDefault();
-    var menu = $('terminalContextMenu'); menu.textContent = '';
+    var menu = $('terminalContextMenu'); menu.textContent = ''; menu.className = 'terminal-context-menu';
     var copy = document.createElement('button'); copy.type = 'button'; copy.textContent = '複製暫存文字';
     copy.addEventListener('click', function () { menu.hidden = true; copyCapture(item); });
     var replace = document.createElement('button'); replace.type = 'button'; replace.textContent = '替換目前框選文字';
@@ -256,6 +265,53 @@
   function sameSession(state, generation) {
     return state.status === 'running' && state.generation === generation && getState(state.workspaceId, state.slot, state.tabId) === state;
   }
+  function updateLiveSelection(state) {
+    var selected = state.terminal.hasSelection();
+    if (selected) focusedEditor = { terminal: state };
+    if (!selected) {
+      if (state.userSelecting || !state.liveIntent) { state.liveSelection = null; state.liveIntent = false; }
+      state.hadLiveSelection = false;
+    }
+    else {
+      // Rendering and resize may emit selection events too. Only a new user
+      // selection can renew its validity after input/output has changed.
+      if (!state.hadLiveSelection || state.userSelecting) state.liveSelection = state.liveReplace.capture();
+      state.hadLiveSelection = true;
+      state.liveIntent = true;
+    }
+    selected = selected || state.liveIntent;
+    var button = state.lineEditorElement.querySelector('.line-send');
+    button.textContent = selected ? '替換' : '貼入';
+    button.title = selected ? '用下方文字替換終端框選內容，保留其他字元，不按 Enter' : '貼到終端游標，不按 Enter；若終端已有輸入會接在後面';
+    state.lineInput.placeholder = selected ? '輸入替換文字 · Enter 替換，不執行' : '輸入列 · 可框選編輯，Enter 送出';
+  }
+  function replaceLiveSelection(state, value, saved) {
+    var target = saved === undefined ? state.liveSelection : saved;
+    if (!target) { showToast('請框選目前 CMD／PowerShell 提示字元後、尚未送出的指令文字；歷史輸出請帶到輸入列編輯。', true); return false; }
+    var result = state.liveReplace.replace(target, value);
+    if (!result.ok) { showToast(result.message, true); return false; }
+    showToast('已原位替換，其他文字保留；按終端 Enter 才執行。');
+    return true;
+  }
+  function showLiveReplaceMenu(state, x, y) {
+    var saved = state.liveSelection;
+    if (!saved) { replaceLiveSelection(state, '', null); return; }
+    var menu = $('terminalContextMenu'); menu.textContent = ''; menu.className = 'terminal-context-menu live-replace-menu';
+    var title = document.createElement('p'); title.className = 'text-edit-label'; title.textContent = '將「' + saved.selected.slice(0, 80) + '」原位替換成';
+    var input = document.createElement('input'); input.className = 'text-edit-replacement live-replace-text'; input.type = 'text'; input.maxLength = 16000;
+    input.value = state.lineInput.value; input.placeholder = '例如 222；也可貼上或選用暫存值'; input.setAttribute('aria-label', '終端原位替換文字');
+    var apply = document.createElement('button'); apply.type = 'button'; apply.className = 'live-replace-apply'; apply.textContent = '替換，不執行';
+    function commit(value) { if (replaceLiveSelection(state, value, saved)) menu.hidden = true; }
+    apply.addEventListener('click', function () { commit(input.value); });
+    input.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); if (!event.repeat && !event.isComposing && event.keyCode !== 229) commit(input.value); } });
+    input.addEventListener('paste', function (event) { if (event.clipboardData && /[\r\n]/.test(event.clipboardData.getData('text/plain'))) { event.preventDefault(); showToast('替換文字必須是單行。', true); } });
+    menu.append(title, input, apply);
+    capturedValues.slice(0, 20).forEach(function (item) {
+      var button = document.createElement('button'); button.type = 'button'; button.className = 'live-replace-suggestion'; button.textContent = item.address;
+      button.title = item.source || ''; button.addEventListener('click', function () { commit(item.address); }); menu.appendChild(button);
+    });
+    positionContextMenu(menu, x, y); input.focus(); input.select();
+  }
   function createLineEditor(state, view, tabConfig) {
     var editor = document.createElement('div'); editor.className = 'pane-line-editor';
     var input = document.createElement('input'); input.type = 'text'; input.className = 'pane-line-input'; input.maxLength = 16000;
@@ -273,6 +329,10 @@
     function deliver(enter) {
       if (!hostReady || !sameSession(state, state.generation)) { showToast('請先啟動這個終端分頁。'); return; }
       var value = input.value;
+      if (state.terminal.hasSelection() || state.liveIntent) {
+        if (replaceLiveSelection(state, value)) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); }
+        return;
+      }
       if (!value || !validLineText(value)) { showToast('輸入列只接受單行文字，最多 16,000 字元。', true); return; }
       if (enter) send(withGeneration(state, { type: 'input', data: value + '\r' }));
       else state.terminal.paste(value);
@@ -305,10 +365,12 @@
   function editTerminalSelection(state) {
     var selection = state.terminal.getSelection();
     if (!selection || !validLineText(selection)) { showToast('請選取一整行指令（不含提示字元），再帶入輸入列。', true); return; }
+    state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
     state.lineInput.value = selection; state.lineInput.focus(); state.lineInput.select();
     state.lineInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
   function disposeTerminal(state) {
+    if (state.selectionCleanup) state.selectionCleanup();
     if (state.lineEditor) state.lineEditor.dispose();
     try { state.terminal.dispose(); } catch (_) { }
   }
@@ -328,9 +390,24 @@
       status: 'idle', generation: null, pid: null, exitCode: null, hasOutput: false, clearOnStarted: false };
     resetCaptureScanner(state);
     view.panes[slot].tabs.push(state);
+    state.sessionShell = tabConfig.shell;
+    state.liveReplace = window.TerminalGridLiveReplace.create(terminal, {
+      isRunning: function () { return hostReady && sameSession(state, state.generation); },
+      getShell: function () { return state.sessionShell; }, getGeneration: function () { return state.generation; },
+      send: function (data) { return send(withGeneration(state, { type: 'input', data: data })); }
+    });
     createLineEditor(state, view, tabConfig);
+    terminal.onSelectionChange(function () { updateLiveSelection(state); });
+    mount.querySelector('.terminal-mount').addEventListener('mousedown', function (event) {
+      if (event.button !== 0) return;
+      if (state.selectionCleanup) state.selectionCleanup();
+      state.userSelecting = true;
+      function finish() { updateLiveSelection(state); state.userSelecting = false; state.selectionCleanup(); }
+      state.selectionCleanup = function () { document.removeEventListener('mouseup', finish); state.selectionCleanup = null; };
+      document.addEventListener('mouseup', finish);
+    });
     terminal.onData(function (data) { if (state.status === 'running' && hostReady) send(withGeneration(state, { type: 'input', data: data })); });
-    terminal.onResize(function (size) { if (isActive(state) && hostReady) send(withGeneration(state, { type: 'resize', cols: size.cols, rows: size.rows })); });
+    terminal.onResize(function (size) { state.liveReplace.resize(); if (isActive(state) && hostReady) send(withGeneration(state, { type: 'resize', cols: size.cols, rows: size.rows })); });
     terminal.attachCustomKeyEventHandler(function (event) {
       var control = event.ctrlKey && !event.altKey && !event.metaKey;
       var pasteKey = (control && event.code === 'KeyV') || (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'Insert');
@@ -343,7 +420,7 @@
       }
       if ((event.code === 'Backspace' || event.code === 'Delete') && state.terminal.hasSelection()) {
         event.preventDefault(); event.stopPropagation();
-        if (event.type === 'keydown' && !event.repeat) showToast('框選的是終端輸出；請右鍵「帶到本格輸入列編輯」，再刪除或替換。');
+        if (event.type === 'keydown' && !event.repeat) replaceLiveSelection(state, '');
         return false;
       }
       return true;
@@ -742,7 +819,8 @@
   }
   function pasteClipboard(state) {
     if (state.status !== 'running') { showToast('請先啟動這個終端分頁。'); return Promise.resolve(); }
-    var generation = state.generation, read;
+    var generation = state.generation, read, selected = state.terminal.hasSelection() || state.liveIntent;
+    var selectedTarget = selected ? state.liveSelection : null;
     try { read = navigator.clipboard.readText(); } catch (_) { read = Promise.reject(new Error('clipboard')); }
     // Start each read during the user's gesture, preserve deliberate paste order,
     // and consume a rejection immediately while an earlier confirmation is open.
@@ -751,13 +829,15 @@
       var clipboard = await result;
       if (!sameSession(state, generation)) return;
       if (clipboard.failed) { showToast('無法讀取剪貼簿，請檢查系統權限。', true); return; }
-      await pasteText(state, clipboard.value, generation);
+      if (selected) replaceLiveSelection(state, clipboard.value, selectedTarget);
+      else await pasteText(state, clipboard.value, generation, false);
     }).catch(function () { showToast('貼上未完成，請重試。', true); });
     return state.pasteQueue;
   }
-  async function pasteText(state, value, expectedGeneration) {
+  async function pasteText(state, value, expectedGeneration, allowReplace) {
     var generation = expectedGeneration === undefined ? state.generation : expectedGeneration;
     if (!value || !sameSession(state, generation)) return;
+    if (allowReplace !== false && (state.terminal.hasSelection() || state.liveIntent)) { replaceLiveSelection(state, value); return; }
     if (value.length > 1048576) { showToast('剪貼簿文字超過 1 MB。', true); return; }
     if (/[\r\n]/.test(value)) {
       var preview = value.length > 500 ? value.slice(0, 500) + '\n…（僅顯示前 500 字）' : value;
@@ -768,6 +848,7 @@
   }
   async function insertCommand(state, value, captured) {
     if (!state || state.status !== 'running') { showToast('請先啟動要插入指令的終端分頁。'); return; }
+    if (state.terminal.hasSelection() || state.liveIntent) { replaceLiveSelection(state, value); return; }
     if (/[\r\n]/.test(value)) { showToast('指令包只接受單行指令；請編輯指令內容後重試。', true); return; }
     if (value.length > 16000) { showToast('指令超過 16,000 字元。', true); return; }
     state.terminal.paste(value); state.terminal.focus();
@@ -812,6 +893,8 @@
     if (message.type === 'started') {
       if (isStale(state, message, true)) return;
       pruneCaptures(state); resetCaptureScanner(state);
+      state.liveReplace.reset(); state.liveSelection = null; state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
+      state.sessionShell = getTabConfig(view.config, state.slot, state.tabId).shell;
       state.lineInput.value = ''; state.lineInput.dispatchEvent(new Event('input', { bubbles: true }));
       if (typeof message.generation === 'number') state.generation = message.generation;
       if (state.clearOnStarted) { state.terminal.reset(); state.hasOutput = false; }
@@ -831,7 +914,11 @@
         var binary = window.atob(message.data), bytes = new Uint8Array(binary.length);
         for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         var gen = message.generation, size = bytes.length;
-        state.terminal.write(bytes, function () { send({ type: 'ack', workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, bytes: size, generation: gen }); });
+        state.liveReplace.output();
+        state.terminal.write(bytes, function () {
+          if (state.generation === gen) state.liveReplace.parsed();
+          send({ type: 'ack', workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, bytes: size, generation: gen });
+        });
         try { if ($('captureEnabled').checked) state.captureScanner.feed(state.captureDecoder.decode(bytes, { stream: true })); }
         catch (_) { resetCaptureScanner(state); setStatus('IPv6 擷取已重設；終端輸出繼續顯示。'); }
         if (!state.hasOutput) { state.hasOutput = true; renderPane(view, state.slot); }
@@ -1124,9 +1211,10 @@
     } catch (error) { showToast('匯入指令包失敗：' + error.message, true); }
   }
   function showTerminalMenu(x, y, state) {
-    var menu = $('terminalContextMenu'); menu.textContent = '';
-    function add(label, action) { var button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', function () { menu.hidden = true; action(); }); menu.appendChild(button); }
+    var menu = $('terminalContextMenu'); menu.textContent = ''; menu.className = 'terminal-context-menu';
+    function add(label, action) { var button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', function (event) { event.stopPropagation(); menu.hidden = true; action(); }); menu.appendChild(button); }
     add('複製選取文字', function () { copySelection(state); });
+    add('原位替換選取文字…', function () { showLiveReplaceMenu(state, x, y); });
     add('貼上剪貼簿', function () { pasteClipboard(state); });
     add('暫存選取文字', function () { saveCaptureText(state.terminal.getSelection(), state); });
     add('編輯選取指令', function () { openCommandDraft(state); });
@@ -1162,7 +1250,7 @@
   }
 
   function initialize() {
-    if (typeof window.Terminal !== 'function' || !window.FitAddon || !window.TerminalGridIPv6 || !window.TerminalGridDraft || !window.TerminalGridTextEdit) {
+    if (typeof window.Terminal !== 'function' || !window.FitAddon || !window.TerminalGridIPv6 || !window.TerminalGridDraft || !window.TerminalGridTextEdit || !window.TerminalGridLiveReplace) {
       $('connectionDot').className = 'connection-dot failed'; $('connectionText').textContent = '終端元件載入失敗';
       showToast('缺少本機終端元件。請完整解壓縮套件，再啟動 TerminalGridIntegrated.exe。', true); return;
     }

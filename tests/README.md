@@ -22,10 +22,13 @@ Optional frontend integration checks require a separately installed Playwright m
 
 ```powershell
 node tests/CaptureUiTests.js
+node tests/LiveReplaceUiTests.js
 node tests/EditingUiTests.js
 ```
 
 Use the normal Node module resolution or set `NODE_PATH` to an existing approved module directory. These checks use isolated headless browser profiles and mock host/clipboard objects. They verify the real UI scripts, real xterm input integration, selection replacement, source/generation isolation and no-Enter paste behavior, but do not verify native WebView2 clipboard access or real Wi-Fi Aware devices. Local diagnostic screenshots remain in `.test-work/` and are excluded from release packages.
+
+`LiveReplaceUiTests.js` uses actual mouse selections in xterm to check replacement keys for the current command, clipboard and shelf actions, and rejection of history/stale coordinates. `Test.ps1` also runs `LiveReplaceNativeTests.cs`: eight actual CMD/PowerShell cases replace `111` with equal, shorter, longer or empty text, verify that replacement alone does not create a file, then press Enter and check the file's content. Generated files stay in `.test-work/test-results/live-replace/`.
 
 ## 3.3.0 輸入與替換測試
 
