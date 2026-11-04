@@ -190,7 +190,7 @@
     draftTarget = { state: state, generation: state.generation };
     setCapturePanel(true); $('commandDraftHost').hidden = false;
     commandDraft.open(selection || (existing ? existing.value : ''), workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name);
-    state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
+    state.liveReplace.invalidate(); state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
   }
   function replaceFocusedText(value) {
     if (focusedEditor && focusedEditor.draft && commandDraft.hasSelection()) { commandDraft.replaceSelection(value); return; }
@@ -287,7 +287,7 @@
   }
   function replaceLiveSelection(state, value, saved) {
     var target = saved === undefined ? state.liveSelection : saved;
-    if (!target) { showToast('請框選目前 CMD／PowerShell 提示字元後、尚未送出的指令文字；歷史輸出請帶到輸入列編輯。', true); return false; }
+    if (!target) { showToast(state.liveReplace.getUnavailableMessage() || '請連續框選目前 CMD／PowerShell 提示字元後、尚未送出的指令文字；歷史輸出請帶到輸入列編輯。', true); return false; }
     var result = state.liveReplace.replace(target, value);
     if (!result.ok) { showToast(result.message, true); return false; }
     showToast('已原位替換，其他文字保留；按終端 Enter 才執行。');
@@ -365,7 +365,7 @@
   function editTerminalSelection(state) {
     var selection = state.terminal.getSelection();
     if (!selection || !validLineText(selection)) { showToast('請選取一整行指令（不含提示字元），再帶入輸入列。', true); return; }
-    state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
+    state.liveReplace.invalidate(); state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
     state.lineInput.value = selection; state.lineInput.focus(); state.lineInput.select();
     state.lineInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
@@ -400,6 +400,7 @@
     terminal.onSelectionChange(function () { updateLiveSelection(state); });
     mount.querySelector('.terminal-mount').addEventListener('mousedown', function (event) {
       if (event.button !== 0) return;
+      state.liveReplace.invalidate();
       if (state.selectionCleanup) state.selectionCleanup();
       state.userSelecting = true;
       function finish() { updateLiveSelection(state); state.userSelecting = false; state.selectionCleanup(); }
@@ -914,9 +915,9 @@
         var binary = window.atob(message.data), bytes = new Uint8Array(binary.length);
         for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         var gen = message.generation, size = bytes.length;
-        state.liveReplace.output();
+        var outputToken = state.liveReplace.output();
         state.terminal.write(bytes, function () {
-          if (state.generation === gen) state.liveReplace.parsed();
+          if (state.generation === gen) state.liveReplace.parsed(outputToken);
           send({ type: 'ack', workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, bytes: size, generation: gen });
         });
         try { if ($('captureEnabled').checked) state.captureScanner.feed(state.captureDecoder.decode(bytes, { stream: true })); }

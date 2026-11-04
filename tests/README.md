@@ -28,7 +28,11 @@ node tests/EditingUiTests.js
 
 Use the normal Node module resolution or set `NODE_PATH` to an existing approved module directory. These checks use isolated headless browser profiles and mock host/clipboard objects. They verify the real UI scripts, real xterm input integration, selection replacement, source/generation isolation and no-Enter paste behavior, but do not verify native WebView2 clipboard access or real Wi-Fi Aware devices. Local diagnostic screenshots remain in `.test-work/` and are excluded from release packages.
 
-`LiveReplaceUiTests.js` uses actual mouse selections in xterm to check replacement keys for the current command, clipboard and shelf actions, and rejection of history/stale coordinates. `Test.ps1` also runs `LiveReplaceNativeTests.cs`: eight actual CMD/PowerShell cases replace `111` with equal, shorter, longer or empty text, verify that replacement alone does not create a file, then press Enter and check the file's content. Generated files stay in `.test-work/test-results/live-replace/`.
+`LiveReplaceUiTests.js` uses actual mouse selections in xterm to check replacement keys for the current command, clipboard and shelf actions, cancellation during deferred paste, repeated replacement, and rejection of history/stale/rectangular coordinates. It also checks the conservative fallback for ambiguous trailing spaces.
+
+`Test.ps1` runs `LiveReplaceNativeTests.cs`: 24 actual CMD/PowerShell cases replace `111` with equal, shorter, longer or empty text, test Insert/overwrite mode, middle cursors and repeated replacement, verify no execution before Enter, then check file contents. Two CMD cases preserve exact trailing spaces when the full command length is known; uncertain screen extents are separately rejected by the UI. Generated files stay in `.test-work/test-results/live-replace/`.
+
+Run `node tests/LiveReplaceStateTests.js` for dependency-free state tests. These exercise old output callbacks after new input, callbacks across session reset, cancellation, rectangular selection and ambiguous trailing whitespace. GitHub Actions runs them on every build.
 
 ## 3.3.0 輸入與替換測試
 

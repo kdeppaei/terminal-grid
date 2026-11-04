@@ -72,44 +72,73 @@ async function main() {
       assert.deepEqual(messages.map(m => m.data), expected);
       assert.ok(messages.every(m => m.workspaceId === source.workspaceId && m.tabId === source.tabId && m.generation === source.generation));
     }
-    const keys = '\x1b[D'.repeat(3) + '\x7f'.repeat(3);
+    const keys = value => '\x7f'.repeat(6) + value + '000' + '\x1b[D'.repeat(3);
     await paint(); await select('111', true); await editor.fill('222');
     assert.equal(await pane.locator('.line-send').first().innerText(), '替換');
-    await pane.locator('.line-send').first().click(); await expectInput([keys + '222']);
-    await emit({ type: 'output', data: Buffer.from('\rC:\\test>000222000\x1b[K').toString('base64') });
+    await pane.locator('.line-send').first().click(); await expectInput([keys('222')]);
+    await emit({ type: 'output', data: Buffer.from('\rC:\\test>000222000\x1b[K' + '\x1b[D'.repeat(3)).toString('base64') });
     pass('real mouse selection 111 plus bottom 222 sends one in-place edit without Enter or appending');
     fs.mkdirSync(path.join(root, '.test-work', 'live-replace-ui'), { recursive: true });
     await page.screenshot({ path: path.join(root, '.test-work', 'live-replace-ui', 'replaced.png') });
 
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'ack'));
+    await page.evaluate(() => { window.fixture.messages = []; });
+    await select('222'); await editor.fill('44'); await pane.locator('.line-send').first().click();
+    await expectInput(['\x1b[C'.repeat(3) + keys('44')]);
+    pass('fresh selection after replacement echo allows a second shorter replacement at the restored caret');
+
     await paint(); await select(); await raw.click({ button: 'right', force: true });
     await page.locator('#terminalContextMenu').getByRole('button', { name: '原位替換選取文字…', exact: true }).click();
     await page.locator('.live-replace-text').fill('44444');
-    await page.locator('.live-replace-apply').click(); await expectInput([keys + '44444']);
+    await page.locator('.live-replace-apply').click(); await expectInput([keys('44444')]);
     pass('right-click replace changes length while preserving suffix');
 
-    await paint(); await select(); await raw.focus(); await page.keyboard.press('Control+v'); await expectInput([keys + '222']);
+    await paint(); await select(); await raw.focus(); await page.keyboard.press('Control+v'); await expectInput([keys('222')]);
     pass('Ctrl+V replaces the live selection once');
-    await paint(); await select(); await raw.focus(); await page.keyboard.press('Backspace'); await expectInput([keys]);
+    await paint(); await select(); await raw.focus(); await page.keyboard.press('Backspace'); await expectInput([keys('')]);
     pass('Backspace deletes only the selected live argument');
     await paint('000111000', 'C:\\test>', 1); await select(); await editor.fill('22'); await editor.press('Enter');
-    await expectInput(['\x1b[C'.repeat(5) + '\x7f'.repeat(3) + '22']);
+    await expectInput(['\x1b[C'.repeat(8) + '\x7f'.repeat(6) + '22000' + '\x1b[D'.repeat(3)]);
     pass('cursor before selection moves right correctly; editor Enter replaces without executing');
 
-    await paint('000111000', 'C:\\使用者\\測試>'); await select(); await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([keys + '222']);
+    await paint('000111000   ', 'C:\\test>', 3); await select(); await editor.fill('222');
+    await pane.locator('.line-send').first().click(); await expectInput([]);
+    assert.equal(await page.locator('#toast').innerText(), '無法確認指令尾端的空白範圍，請使用下方輸入列或草稿編輯。');
+    pass('ambiguous trailing spaces with a middle caret block replacement and explain the editor fallback');
+    await paint('000111000   '); await select(); await editor.fill('222');
+    await pane.locator('.line-send').first().click();
+    await expectInput(['\x7f'.repeat(9) + '222000   ' + '\x1b[D'.repeat(6)]);
+    pass('a caret at the known input end permits replacement while preserving trailing spaces');
+
+    await paint('000111000', 'C:\\使用者\\測試>'); await select(); await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([keys('222')]);
     pass('wide Chinese characters in CMD path do not shift replacement coordinates');
-    await paint('000111000', 'PS C:\\test> '); await select(); await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([keys + '222']);
+    await paint('000111000', 'PS C:\\test> '); await select(); await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([keys('222')]);
     pass('PowerShell standard prompt supports the same edit');
-    await paint('000111000', 'C:\\' + 'folder'.repeat(25) + '>'); await select(); await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([keys + '222']);
+    await paint('000111000', 'C:\\' + 'folder'.repeat(25) + '>'); await select(); await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([keys('222')]);
     pass('wrapped prompt keeps input coordinates within the current logical line');
+
+    await paint('a'.repeat(250));
+    const rectangle = await page.evaluate(() => {
+      const terminal = window.fixture.terminals[0], box = terminal.element.querySelector('.xterm-screen').getBoundingClientRect();
+      return { x1: box.x + 10.1 * box.width / terminal.cols, x2: box.x + 13.1 * box.width / terminal.cols,
+        y1: box.y + 0.5 * box.height / terminal.rows, y2: box.y + 1.5 * box.height / terminal.rows };
+    });
+    await page.keyboard.down('Alt');
+    await page.mouse.move(rectangle.x1, rectangle.y1); await page.mouse.down();
+    await page.mouse.move(rectangle.x2, rectangle.y2, { steps: 8 }); await page.mouse.up();
+    await page.keyboard.up('Alt');
+    assert.equal(await page.evaluate(() => window.fixture.terminals[0].getSelection()), 'aaa\r\naaa');
+    await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([]);
+    pass('Alt rectangle selection cannot delete unselected characters between wrapped rows');
 
     await page.locator('#captureButton').click();
     await page.locator('#captureValueInput').fill('222'); await page.locator('#addCaptureValueButton').click();
     const saved = page.locator('.capture-item[data-address="222"]');
     await editor.fill('old input'); await editor.selectText();
-    await paint(); await select(); await saved.locator('.capture-replace').click(); await expectInput([keys + '222']);
+    await paint(); await select(); await saved.locator('.capture-replace').click(); await expectInput([keys('222')]);
     pass('shelf Replace targets the new terminal selection instead of an older input-field selection');
     await paint(); await select();
-    await saved.locator('.capture-address').dragTo(pane.locator('.terminal-mount').first()); await expectInput([keys + '222']);
+    await saved.locator('.capture-address').dragTo(pane.locator('.terminal-mount').first()); await expectInput([keys('222')]);
     pass('real shelf drag replaces selected terminal characters instead of appending');
     await page.locator('#closeCaptureButton').click();
 
@@ -128,6 +157,43 @@ async function main() {
     await paint(); await select(); await page.evaluate(() => window.fixture.terminals[0].resize(60, 15));
     await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([]);
     pass('resize invalidates the selected screen coordinates');
+    await select(); await pane.locator('.line-send').first().click(); await expectInput([keys('222')]);
+    pass('selecting again after resize permits replacement with fresh coordinates');
+
+    await paint(); await select(); await page.evaluate(() => { window.fixture.deferred = true; });
+    await raw.focus(); await page.keyboard.press('Control+v');
+    await page.waitForFunction(() => typeof window.fixture.resolve === 'function');
+    await pane.locator('.terminal-mount').first().click({ position: { x: 500, y: 180 } });
+    assert.equal(await page.evaluate(() => window.fixture.terminals[0].hasSelection()), false);
+    assert.equal(await pane.locator('.line-send').first().innerText(), '貼入');
+    await page.evaluate(() => { window.fixture.deferred = false; window.fixture.resolve('222'); }); await expectInput([]);
+    pass('clicking blank terminal space cancels a pending selected clipboard replacement');
+
+    await paint('000111999'); await select(); await page.evaluate(() => { window.fixture.deferred = true; });
+    await raw.focus(); await page.keyboard.press('Control+v');
+    await select('999');
+    await page.evaluate(() => { window.fixture.deferred = false; window.fixture.resolve('222'); }); await expectInput([]);
+    assert.equal(await page.evaluate(() => window.fixture.terminals[0].getSelection()), '999');
+    pass('a new mouse selection cancels the previous pending replacement and remains selected');
+
+    for (const transfer of [
+      { button: '帶到本格輸入列編輯', target: '.pane-line-input', draft: false },
+      { button: '編輯選取指令', target: '#commandDraftText', draft: true }
+    ]) {
+      await paint(); await select();
+      await page.evaluate(() => { window.fixture.deferred = true; window.fixture.resolve = null; });
+      await raw.focus(); await page.keyboard.press('Control+v');
+      await page.waitForFunction(() => typeof window.fixture.resolve === 'function');
+      await raw.click({ button: 'right', force: true });
+      await page.locator('#terminalContextMenu').getByRole('button', { name: transfer.button, exact: true }).click();
+      assert.equal(await page.locator(transfer.target).first().inputValue(), '111');
+      assert.equal(await page.evaluate(() => window.fixture.terminals[0].hasSelection()), false);
+      await page.evaluate(() => { window.fixture.deferred = false; window.fixture.resolve('222'); });
+      await expectInput([]);
+      assert.equal(await page.locator(transfer.target).first().inputValue(), '111');
+      pass('transferring the selection to ' + (transfer.draft ? 'the command draft' : 'the line editor') + ' cancels pending replacement without changing the transferred text');
+      if (transfer.draft) await page.locator('#closeCaptureButton').click();
+    }
 
     await paint(); await select(); await page.evaluate(() => { window.fixture.deferred = true; });
     await raw.focus(); await page.keyboard.press('Control+v');

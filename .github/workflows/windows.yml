@@ -24,6 +24,9 @@ jobs:
       - name: Test IPv6 output extraction
         shell: pwsh
         run: node ./tests/Ipv6CaptureTests.js
+      - name: Test live replacement state isolation
+        shell: pwsh
+        run: node ./tests/LiveReplaceStateTests.js
       - name: Package Windows release
         shell: pwsh
         run: ./Package.ps1 -SkipBuild
