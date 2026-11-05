@@ -24,9 +24,12 @@ Optional frontend integration checks require a separately installed Playwright m
 node tests/CaptureUiTests.js
 node tests/LiveReplaceUiTests.js
 node tests/EditingUiTests.js
+node tests/WorkbenchUiTests.js
 ```
 
 Use the normal Node module resolution or set `NODE_PATH` to an existing approved module directory. These checks use isolated headless browser profiles and mock host/clipboard objects. They verify the real UI scripts, real xterm input integration, selection replacement, source/generation isolation and no-Enter paste behavior, but do not verify native WebView2 clipboard access or real Wi-Fi Aware devices. Local diagnostic screenshots remain in `.test-work/` and are excluded from release packages.
+
+`WorkbenchUiTests.js` covers quick right-click copy/paste, menu access through Shift/right-click, Shift/F10 and the pane ellipsis, keyboard navigation, preference persistence, clipboard failure/cancellation/session guards, workspace visibility and compact layouts. Its visual fixtures use example output and documentation IP addresses; no iperf or external network command runs. The packaged preview image is a selected visual fixture, not native-shell verification.
 
 `LiveReplaceUiTests.js` uses actual mouse selections in xterm to check replacement keys for the current command, clipboard and shelf actions, cancellation during deferred paste, repeated replacement, and rejection of history/stale/rectangular coordinates. It also checks the conservative fallback for ambiguous trailing spaces.
 

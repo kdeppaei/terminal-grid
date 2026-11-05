@@ -10,6 +10,7 @@
   var workspaceEditingId = null, packEditingId = null, commandEditingRef = null, flowPauseResolve = null;
   var capturedValues = [], captureRenderTimer = null, captureAutoOpened = false, captureDragging = false;
   var commandDraft = null, draftTarget = null, focusedEditor = null;
+  var rightClickMode = 'quick';
   var $ = function (id) { return document.getElementById(id); };
   var workspaceHost = $('workspaceHost');
 
@@ -410,6 +411,14 @@
     terminal.onData(function (data) { if (state.status === 'running' && hostReady) send(withGeneration(state, { type: 'input', data: data })); });
     terminal.onResize(function (size) { state.liveReplace.resize(); if (isActive(state) && hostReady) send(withGeneration(state, { type: 'resize', cols: size.cols, rows: size.rows })); });
     terminal.attachCustomKeyEventHandler(function (event) {
+      if (event.code === 'ContextMenu' || (event.shiftKey && event.code === 'F10')) {
+        event.preventDefault(); event.stopPropagation();
+        if (event.type === 'keydown' && !event.repeat) {
+          var bounds = mount.getBoundingClientRect();
+          markFocused(view, slot, state.tabId); showTerminalMenu(bounds.left + 12, bounds.top + 12, state);
+        }
+        return false;
+      }
       var control = event.ctrlKey && !event.altKey && !event.metaKey;
       var pasteKey = (control && event.code === 'KeyV') || (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.code === 'Insert');
       var copyKey = control && event.code === 'KeyC' && (event.shiftKey || state.terminal.hasSelection());
@@ -431,8 +440,23 @@
       if (event.clipboardData) pasteText(state, event.clipboardData.getData('text/plain')); else pasteClipboard(state);
     }, true);
     mount.addEventListener('contextmenu', function (event) {
-      event.preventDefault(); markFocused(view, slot, state.tabId); showTerminalMenu(event.clientX, event.clientY, state);
-    });
+      if (event.target.closest('.pane-line-editor')) return;
+      event.preventDefault(); event.stopImmediatePropagation(); markFocused(view, slot, state.tabId);
+      if (event.shiftKey || event.button !== 2 || rightClickMode === 'menu') {
+        showTerminalMenu(event.clientX, event.clientY, state); return;
+      }
+      $('terminalContextMenu').hidden = true;
+      if (state.quickCopyPending) { showToast('正在複製，完成後即可貼上。'); return; }
+      if (state.terminal.hasSelection()) {
+        state.quickCopyPending = true;
+        copySelection(state, true).finally(function () { state.quickCopyPending = false; });
+      } else {
+        // A right-click with no visible selection is always a plain paste, even
+        // if a resize previously retained a stale replacement intent.
+        state.liveReplace.invalidate(); state.liveIntent = false; updateLiveSelection(state);
+        pasteClipboard(state);
+      }
+    }, true);
     mount.addEventListener('click', function (event) {
       if (event.target.closest('button[data-action="start"]')) { startSlot(view, slot, state.tabId, false); return; }
       markFocused(view, slot, state.tabId);
@@ -453,6 +477,12 @@
     var element = document.createElement('section'); element.className = 'pane'; element.dataset.slot = index; element.dataset.status = 'idle';
     element.innerHTML = '<header class="pane-header"><div class="pane-title-row"><span class="slot-number">' + String(index + 1).padStart(2, '0') + '</span><span class="state-dot" aria-hidden="true"></span><h2 class="pane-name"></h2><div class="pane-controls"><button class="icon-button" data-action="configure" title="終端設定" aria-label="終端設定">⚙</button><button class="icon-button" data-action="zoom" title="放大終端" aria-label="放大終端">⛶</button><button class="icon-button close-button" data-action="stop" title="結束終端" aria-label="結束終端">×</button></div></div><div class="pane-tabs" role="tablist"></div><div class="pane-toolbar"><select class="pane-shell" aria-label="終端類型"><option value="CMD">CMD</option><option value="PowerShell">PowerShell</option><option value="PowerShell 7">PowerShell 7</option><option value="Custom">自訂程式</option></select><span class="pane-state"></span><button class="icon-button pane-folder" data-action="folder" title="選擇啟動資料夾" aria-label="選擇啟動資料夾">📁</button><button class="icon-button pane-restart" data-action="restart" title="重新啟動終端" aria-label="重新啟動終端">↻</button><button class="button pane-start" data-action="start">啟動</button></div><div class="pane-directory"><span class="pane-folder-path"></span></div></header><div class="terminal-container"></div>';
     view.grid.appendChild(element);
+    var menuButton = document.createElement('button'); menuButton.className = 'icon-button pane-menu';
+    menuButton.dataset.action = 'menu'; menuButton.textContent = '⋯';
+    menuButton.title = '終端選單（Shift＋右鍵）'; menuButton.setAttribute('aria-label', '終端功能選單');
+    menuButton.setAttribute('aria-haspopup', 'menu');
+    element.querySelector('.pane-controls').prepend(menuButton);
+    element.querySelector('.pane-folder').innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 5h5l2 2h8v9h-15z"/><path d="M2.5 5V3.5h5l2 2H17v1.5"/></svg>';
     var cell = { element: element, container: element.querySelector('.terminal-container'), tabs: [], config: view.config.slots[index] };
     view.panes[index] = cell;
     cell.config.tabs.forEach(function (tab) { makeTerminal(view, index, tab); });
@@ -466,6 +496,10 @@
     element.addEventListener('click', function (event) {
       var button = event.target.closest('button[data-action]'); if (!button || button.disabled) return;
       var state = activeState(view, index);
+      if (button.dataset.action === 'menu') {
+        var bounds = button.getBoundingClientRect(); markFocused(view, index, state.tabId);
+        showTerminalMenu(bounds.left, bounds.bottom + 4, state);
+      }
       if (button.dataset.action === 'configure') openSettings(view, index, state.tabId);
       if (button.dataset.action === 'zoom') toggleZoom(view, index);
       if (button.dataset.action === 'start') startSlot(view, index, state.tabId, false);
@@ -485,6 +519,7 @@
   }
   function createView(workspace) {
     var grid = document.createElement('main'); grid.className = 'terminal-grid'; grid.setAttribute('aria-label', workspace.name + ' 終端網格');
+    grid.hidden = true;
     grid.dataset.workspaceId = workspace.id; workspaceHost.appendChild(grid);
     var view = { config: workspace, grid: grid, panes: [], zoomedSlot: null };
     views.push(view);
@@ -649,6 +684,7 @@
     if (!view) return;
     var config = view.config, count = config.rows * config.cols, grid = view.grid;
     grid.style.setProperty('--grid-rows', String(config.rows)); grid.style.setProperty('--grid-cols', String(config.cols));
+    grid.classList.toggle('is-dense', config.rows >= 3 || config.cols >= 3);
     if (view === activeView) {
       $('rowSelect').value = String(config.rows); $('colSelect').value = String(config.cols);
       var preset = config.rows + 'x' + config.cols;
@@ -812,9 +848,13 @@
   function finishConfirmation(accepted) {
     var resolve = confirmation; confirmation = null; $('confirmDialog').close(); if (resolve) resolve(accepted);
   }
-  async function copySelection(state) {
+  async function copySelection(state, clearSelection) {
     var selection = state.terminal.getSelection();
     if (!selection) { showToast('請先選取要複製的文字。'); return; }
+    if (clearSelection) {
+      state.liveReplace.invalidate(); state.liveIntent = false;
+      state.terminal.clearSelection(); updateLiveSelection(state);
+    }
     try { await navigator.clipboard.writeText(selection); showToast('已複製終端文字。'); }
     catch (_) { showToast('無法使用剪貼簿，請檢查系統權限。', true); }
   }
@@ -1221,6 +1261,9 @@
     add('編輯選取指令', function () { openCommandDraft(state); });
     add('帶到本格輸入列編輯', function () { editTerminalSelection(state); });
     add('開啟資料暫存區…', function () { setCapturePanel(true); });
+    if (!isActive(state)) add('啟動終端', function () { startSlot(getView(state.workspaceId), state.slot, state.tabId, false); });
+    add('選擇啟動資料夾…', function () { choosePaneFolder(getView(state.workspaceId), state.slot, state.tabId); });
+    add('終端設定…', function () { openSettings(getView(state.workspaceId), state.slot, state.tabId); });
     var separator = document.createElement('div'); separator.className = 'context-separator'; menu.appendChild(separator);
     add('開啟指令庫…', function () { $('commandDialog').showModal(); });
     var menuItems = 0;
@@ -1232,6 +1275,7 @@
       });
     });
     positionContextMenu(menu, x, y);
+    menu.querySelector('button').focus();
   }
   function importDroppedFiles(files) {
     var queue = Array.prototype.slice.call(files || []);
@@ -1251,6 +1295,14 @@
   }
 
   function initialize() {
+    try { if (localStorage.getItem('terminalGrid.rightClickMode') === 'menu') rightClickMode = 'menu'; } catch (_) { }
+    $('rightClickMode').value = rightClickMode;
+    $('rightClickMode').addEventListener('change', function () {
+      rightClickMode = this.value === 'menu' ? 'menu' : 'quick';
+      try { localStorage.setItem('terminalGrid.rightClickMode', rightClickMode); } catch (_) { }
+      showToast(rightClickMode === 'quick' ? '右鍵：有選取就複製，無選取就貼上；Shift＋右鍵開選單。' : '右鍵已切換為功能選單。');
+    });
+    $('appOptions').addEventListener('click', function (event) { if (event.target.closest('button')) this.open = false; });
     if (typeof window.Terminal !== 'function' || !window.FitAddon || !window.TerminalGridIPv6 || !window.TerminalGridDraft || !window.TerminalGridTextEdit || !window.TerminalGridLiveReplace) {
       $('connectionDot').className = 'connection-dot failed'; $('connectionText').textContent = '終端元件載入失敗';
       showToast('缺少本機終端元件。請完整解壓縮套件，再啟動 TerminalGridIntegrated.exe。', true); return;
@@ -1351,8 +1403,26 @@
     $('importPackButton').addEventListener('click', function () { if (hostReady) send({ type: 'commandPackOpen' }); });
     document.addEventListener('dragover', function (event) { if (event.dataTransfer && (event.dataTransfer.files.length || hasDataType(event.dataTransfer, 'Files'))) event.preventDefault(); });
     document.addEventListener('drop', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) { event.preventDefault(); importDroppedFiles(event.dataTransfer.files); } });
-    document.addEventListener('click', function (event) { if (!event.target.closest('#terminalContextMenu')) $('terminalContextMenu').hidden = true; });
+    document.addEventListener('click', function (event) {
+      if (!event.target.closest('#terminalContextMenu') && !event.target.closest('[data-action="menu"]')) $('terminalContextMenu').hidden = true;
+      if (!event.target.closest('#appOptions')) $('appOptions').open = false;
+    });
+    $('terminalContextMenu').addEventListener('keydown', function (event) {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || event.target.matches('input,textarea')) return;
+      var buttons = Array.from(this.querySelectorAll('button:not(:disabled)'));
+      if (!buttons.length) return;
+      event.preventDefault();
+      var index = buttons.indexOf(document.activeElement);
+      index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[index].focus();
+    });
     document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && (!$('terminalContextMenu').hidden || $('appOptions').open)) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if ($('appOptions').open) { $('appOptions').open = false; $('appOptions').querySelector('summary').focus(); }
+        else { $('terminalContextMenu').hidden = true; if (focused) focused.state.terminal.focus(); }
+        return;
+      }
       if (event.key === 'Escape' && activeView && activeView.zoomedSlot !== null && !document.querySelector('dialog[open]')) {
         event.preventDefault(); event.stopImmediatePropagation(); activeView.zoomedSlot = null; applyLayout(activeView);
       }

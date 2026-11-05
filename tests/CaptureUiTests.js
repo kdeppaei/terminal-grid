@@ -186,7 +186,7 @@ async function main() {
     await waitForCount(0);
     const destination = page.locator('[data-workspace-id="capture-workspace"] .pane[data-slot="1"] .terminal-layer');
     await destination.click({ position: { x: 25, y: 50 } });
-    await destination.click({ button: 'right' });
+    await destination.click({ button: 'right', modifiers: ['Shift'] });
     assert.equal(await page.locator('#terminalContextMenu').getByRole('button', { name: '暫存選取文字', exact: true }).count(), 1);
     assert.equal(await page.locator('#terminalContextMenu').getByRole('button', { name: '編輯選取指令', exact: true }).count(), 1);
     await page.locator('#draftButton').click();

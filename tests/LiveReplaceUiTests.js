@@ -87,7 +87,7 @@ async function main() {
     await expectInput(['\x1b[C'.repeat(3) + keys('44')]);
     pass('fresh selection after replacement echo allows a second shorter replacement at the restored caret');
 
-    await paint(); await select(); await raw.click({ button: 'right', force: true });
+    await paint(); await select(); await raw.click({ button: 'right', modifiers: ['Shift'], force: true });
     await page.locator('#terminalContextMenu').getByRole('button', { name: '原位替換選取文字…', exact: true }).click();
     await page.locator('.live-replace-text').fill('44444');
     await page.locator('.live-replace-apply').click(); await expectInput([keys('44444')]);
@@ -184,7 +184,7 @@ async function main() {
       await page.evaluate(() => { window.fixture.deferred = true; window.fixture.resolve = null; });
       await raw.focus(); await page.keyboard.press('Control+v');
       await page.waitForFunction(() => typeof window.fixture.resolve === 'function');
-      await raw.click({ button: 'right', force: true });
+      await raw.click({ button: 'right', modifiers: ['Shift'], force: true });
       await page.locator('#terminalContextMenu').getByRole('button', { name: transfer.button, exact: true }).click();
       assert.equal(await page.locator(transfer.target).first().inputValue(), '111');
       assert.equal(await page.evaluate(() => window.fixture.terminals[0].hasSelection()), false);
