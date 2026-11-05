@@ -29,6 +29,12 @@
 
 ## 下載與使用
 
+3.6 隨附 10 個 Default 指令包、81 條 SQA 範本：ADB、scrcpy、iperf 2、iperf3、Windows 網路，各分常用／進階。內建包可插入、拖曳、匯出或複製後修改；個人包仍可編輯，更新不會覆蓋。APK 安裝、push／pull、bugreport 與 scrcpy 錄影提供路徑填入視窗，可選本機檔案／資料夾，並編輯裝置序號、遠端路徑；完成後只插入、不執行。工具本身需另行安裝。
+
+「更多 → 顯示每格輸入列」可隱藏／顯示底部輸入列，偏好會保留；隱藏後仍可直接操作終端或使用 Shift＋右鍵選單。
+
+更新方式：關閉舊程式後，把新版 Windows GUI ZIP 完整解壓縮到原程式資料夾並啟動 EXE，或在原始碼工作副本執行 `UpdateAndLaunch.ps1`。工作區、流程、自建指令保存在 `%LOCALAPPDATA%\TerminalGridIntegrated\layout.json`（使用 `TERMINALGRID_DATA_DIR` 時以指定目錄為準），不隨下載 ZIP 提供；更新會沿用此資料。更新腳本另備份到該資料目錄的 `backups`，不刪除舊資料。本版無資料格式遷移或必要刪除。
+
 本專案對使用者只提供 Windows 本機 GUI。GitHub Releases 的正式使用入口是 `TerminalGridIntegrated.exe`；`ui` 資料夾內的 HTML、JavaScript 與 CSS 是 GUI 內嵌 WebView2 的私有介面資源，不能當成獨立網頁版使用，也不會另外發布 HTML 下載包。請從解壓縮後的 EXE 啟動，並保留同層 DLL 與 `ui` 資料夾。
 
 原位替換目前辨識 CMD／PowerShell 的一般磁碟或 UNC 路徑提示字元，支援由英文、數字、符號及空格組成的單行指令；工作路徑可含中文。歷史輸出、自訂提示字元、全螢幕互動程式及含非 ASCII 字元的指令，請使用可編輯輸入列或草稿。選取後若有新輸出、其他輸入、縮放或重啟，需重新框選。

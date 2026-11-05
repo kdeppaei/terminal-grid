@@ -1,5 +1,7 @@
 # Local verification
 
+`node tests/DefaultCommandsTests.js` validates the 10 built-in packs, 81 snippets and CMD/PowerShell path quoting. Workbench tests additionally cover APK picker responses, push file/folder choices, pull destination folders, cancel/restart guards, copying built-ins to editable packs and input-row visibility/persistence. Native pickers are mocked in browser tests; no external tool or Android device is exercised.
+
 Run from a normal PowerShell session on supported 64-bit Windows with .NET Framework 4.8:
 
 ```powershell

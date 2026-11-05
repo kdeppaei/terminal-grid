@@ -1,4 +1,9 @@
 /* Desktop workbench: neutral surfaces, one focus accent, 4 px spacing rhythm. */
+.app-options-menu input[type="checkbox"]{width:auto;accent-color:#75d9cb}
+.hide-line-editors .pane-line-editor{display:none}
+.hide-line-editors .pane-empty{bottom:7px}
+.hide-line-editors .is-dense:not(.is-zoomed) .pane-empty{bottom:0}
+.hide-line-editors .terminal-layer .exit-notice{bottom:5px}
 :root{--bg:#111419;--panel:#1b2027;--line:#343c47;--muted:#a0adbd;--text:#e3e9f1;--accent:#75d9cb;font-family:"Segoe UI Variable","Segoe UI","Microsoft JhengHei UI",sans-serif}
 .app-header{min-height:64px;padding:12px 20px;gap:16px;background:#1b2027;border-bottom:1px solid #303741;flex:none}
 .brand{gap:10px}.brand-mark{width:34px;height:34px;border-radius:8px;font-size:23px;background:#233d3c;border-color:#3b625e;color:#92e2d6}

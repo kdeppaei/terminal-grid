@@ -20,6 +20,7 @@
         <div class="feature-actions"><button id="flowButton" class="button quiet"><span class="tool-glyph" aria-hidden="true">▷</span>自動化</button><button id="commandButton" class="button quiet"><span class="tool-glyph" aria-hidden="true">⌘</span>指令庫</button><button id="captureButton" class="button quiet" aria-expanded="false" aria-controls="capturePanel"><span class="tool-glyph" aria-hidden="true">▤</span>資料暫存 <span id="captureCount">0</span></button></div>
         <button id="saveButton" class="button">儲存配置</button>
         <details id="appOptions" class="app-options"><summary class="button quiet" title="配置、右鍵偏好與使用說明">⋯ 更多</summary><div class="app-options-menu">
+          <label><input id="showLineEditors" type="checkbox" checked> 顯示每格輸入列</label>
           <label for="rightClickMode">終端右鍵操作</label><select id="rightClickMode"><option value="quick">快速複製／貼上</option><option value="menu">開啟功能選單</option></select>
           <p>快速模式：有選取就複製，無選取就貼上。Shift＋右鍵或每格 ⋯ 仍可開啟選單。</p>
           <div class="options-divider"></div><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="helpButton" class="button quiet">使用說明</button>
@@ -78,6 +79,7 @@
   <dialog id="commandDialog" class="modal command-modal" aria-labelledby="commandTitle"><div class="modal-heading"><div><span class="eyebrow">COMMAND LIBRARY</span><h2 id="commandTitle">常用指令庫</h2></div><button class="icon-button modal-close" data-close="commandDialog" aria-label="關閉指令庫">×</button></div><div class="modal-content"><div class="flow-toolbar"><select id="commandPackSelect" aria-label="指令包"></select><button id="newPackButton" class="button">新增指令包</button><button id="renamePackButton" class="button quiet">重新命名</button><button id="duplicatePackButton" class="button quiet">複製</button><button id="deletePackButton" class="button danger">刪除</button><button id="importPackButton" class="button">匯入 .tgridcmd</button></div><div id="commandList" class="command-list"></div><p class="help-note">可將指令拖到終端，或在終端按 Shift＋右鍵選取。拖曳／插入只會填入文字，不會按 Enter 執行。</p><div class="flow-actions"><button id="addCommandButton" class="button">＋ 新增指令</button><span class="toolbar-spacer"></span><button id="exportPackButton" class="button">另存 .tgridcmd</button></div></div><div class="modal-actions"><button class="button" data-close="commandDialog">完成</button></div></dialog>
 
   <div id="terminalContextMenu" class="terminal-context-menu" hidden></div>
+  <dialog id="pathCommandDialog" class="modal" aria-labelledby="pathCommandTitle"><form id="pathCommandForm"><div class="modal-heading"><h2 id="pathCommandTitle">填入指令路徑</h2><button type="button" class="icon-button" data-close="pathCommandDialog" aria-label="取消路徑填入">×</button></div><div class="modal-content"><p class="help-note">選擇本機檔案／資料夾，填入裝置序號與裝置路徑。完成後只插入，不執行。push／pull 可能覆寫同名檔案。</p><div id="pathCommandFields"></div></div><div class="modal-actions"><button type="button" class="button quiet" data-close="pathCommandDialog">取消</button><button type="submit" class="button primary">組成並插入指令</button></div></form></dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="vendor/xterm.js"></script>
@@ -86,6 +88,7 @@
   <script src="text-editing.js"></script>
   <script src="command-draft.js"></script>
   <script src="live-replace.js"></script>
+  <script src="default-commands.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

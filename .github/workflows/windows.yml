@@ -27,6 +27,9 @@ jobs:
       - name: Test live replacement state isolation
         shell: pwsh
         run: node ./tests/LiveReplaceStateTests.js
+      - name: Test bundled SQA command templates
+        shell: pwsh
+        run: node ./tests/DefaultCommandsTests.js
       - name: Package Windows release
         shell: pwsh
         run: ./Package.ps1 -SkipBuild

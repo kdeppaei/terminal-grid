@@ -28,6 +28,16 @@ try {
         }
     }
 
+    $userDataFolder = [Environment]::GetEnvironmentVariable('TERMINALGRID_DATA_DIR', 'Process')
+    if ([string]::IsNullOrWhiteSpace($userDataFolder)) { $userDataFolder = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'TerminalGridIntegrated' }
+    $userLayout = Join-Path ([IO.Path]::GetFullPath($userDataFolder)) 'layout.json'
+    if (Test-Path -LiteralPath $userLayout -PathType Leaf) {
+        $backupFolder = Join-Path ([IO.Path]::GetFullPath($userDataFolder)) 'backups'
+        New-Item -ItemType Directory -Path $backupFolder -Force | Out-Null
+        $layoutBackup = Join-Path $backupFolder ('layout-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,6) + '.json')
+        Copy-Item -LiteralPath $userLayout -Destination $layoutBackup
+        Write-Host "設定與自建指令備份：$layoutBackup"
+    }
     if (Test-Path -LiteralPath $target -PathType Leaf) {
         [System.IO.File]::Replace($stage, $target, $backup)
     } else {
