@@ -938,10 +938,10 @@
     if (!sameSession(state, generation)) return;
     state.terminal.paste(value); state.terminal.focus();
   }
-  async function insertCommand(state, value, captured) {
+  async function insertCommand(state, value, captured, resolved) {
     if (!state || state.status !== 'running') { showToast('請先啟動要插入指令的終端分頁。'); return; }
-    if (!captured) value = window.TerminalGridDefaults.prepare(value);
-    if (!captured && window.TerminalGridDefaults.keys(value).length) { openPathCommand(state, value); return; }
+    if (!captured && !resolved) value = window.TerminalGridDefaults.prepare(value);
+    if (!captured && !resolved && window.TerminalGridDefaults.keys(value).length) { openPathCommand(state, value); return; }
     if (state.terminal.hasSelection() || state.liveIntent) { replaceLiveSelection(state, value); return; }
     if (/[\r\n]/.test(value)) { showToast('指令包只接受單行指令；請編輯指令內容後重試。', true); return; }
     if (value.length > 16000) { showToast('指令超過 16,000 字元。', true); return; }
@@ -1404,7 +1404,7 @@
         var shell = target.state.status === 'running' ? target.state.sessionShell : getTabConfig(getWorkspace(target.state.workspaceId), target.state.slot, target.state.tabId).shell;
         var text = window.TerminalGridDefaults.resolve(target.text, values, shell);
         pathCommandTarget = null; pathPickPending = null; targetDiscoveryRequest = null;
-        $('pathCommandDialog').close(); if (target.finish) target.finish(text); else insertCommand(target.state, text);
+        $('pathCommandDialog').close(); if (target.finish) target.finish(text); else insertCommand(target.state, text, false, true);
       } catch (error) { showToast(error.message, true); }
     });
     try { if (localStorage.getItem('terminalGrid.rightClickMode') === 'menu') rightClickMode = 'menu'; } catch (_) { }

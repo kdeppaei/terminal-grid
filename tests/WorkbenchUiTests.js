@@ -123,9 +123,10 @@ async function main() {
     await emit({ type: 'commandTargets', requestId: ipDiscovery.requestId, candidates: [{ kind: 'remote', value: '10.0.0.20', label: 'ADB 網路裝置' }, { kind: 'local', value: '10.0.0.5', label: '本機 Wi-Fi' }] });
     assert.equal(await page.locator('select[data-target-key="LOCAL_IPV4"] option').count(), 2);
     await page.locator('select[data-target-key="TARGET_IPV4"]').selectOption('10.0.0.20');
+    await page.locator('[data-path-key="TARGET_IPV4"]').fill('192.0.2.10');
     await page.locator('select[data-target-key="LOCAL_IPV4"]').selectOption('10.0.0.5');
     await reset(); await page.locator('#pathCommandForm button[type="submit"]').click();
-    assert.deepEqual((await inputs()).map(m => m.data), ['iperf3 -c "10.0.0.20" -B "10.0.0.5" -t 30']);
+    assert.deepEqual((await inputs()).map(m => m.data), ['iperf3 -c "192.0.2.10" -B "10.0.0.5" -t 30']);
     await page.locator('#commandDialog [data-close]').first().click();
     pass('device and local/remote IP choices resolve once; stale detection replies cannot replace current options');
     await page.locator('#flowButton').click(); await page.locator('#newFlowButton').click();
