@@ -20,6 +20,8 @@ With Node.js available, run `node tests/Ipv6CaptureTests.js`. This dependency-fr
 
 Optional frontend integration checks require a separately installed Playwright module and Microsoft Edge (no browser download is performed):
 
+這些是開發驗證，不是另一個使用者產品。正式發布只提供本機 Windows GUI；瀏覽器只用於測試 WebView2 會載入的介面資源，測試頁面本身沒有終端引擎。
+
 ```powershell
 node tests/CaptureUiTests.js
 node tests/LiveReplaceUiTests.js
