@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.6.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.7.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -161,7 +161,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.6.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.7.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -210,6 +210,18 @@ namespace TerminalGridIntegrated
                 PaneState pane = GetPane(workspaceId, index, tabId);
                 if (pane == null) return;
                 if (!ValidGeneration(message, pane)) return;
+                if (type == "discoverCommandTargets") {
+                    string requestId = StringValue(message, "requestId");
+                    if (requestId.Length > 100 || targetWorkspace == null) return;
+                    string cwd = targetWorkspace.slots[index].tabs.First(t => t.id == tabId).cwd;
+                    if (targetDiscoveryBusy) { Send(new { type = "commandTargets", requestId = requestId, candidates = new TargetCandidate[0], message = "另一個偵測正在進行，請稍後重新偵測。" }); return; }
+                    targetDiscoveryBusy = true;
+                    Task.Run(delegate {
+                        TargetDiscoveryResult result;
+                        try { result = TargetDiscovery.Discover(cwd); } catch (Exception) { result = new TargetDiscoveryResult { message = "偵測失敗，可重新偵測或手動輸入。" }; }
+                        Ui(delegate { targetDiscoveryBusy = false; Send(new { type = "commandTargets", requestId = requestId, candidates = result.candidates, message = result.message }); });
+                    }); return;
+                }
                 if (type == "start" || type == "restart")
                 {
                     object value; if (!message.TryGetValue("config", out value)) return;
@@ -238,6 +250,7 @@ namespace TerminalGridIntegrated
             }
             catch (Exception ex) { Status("操作未完成：" + ex.Message); }
         }
+        bool targetDiscoveryBusy;
         void QueueFolderPicker(string workspaceId, int slot, string tabId, string requestId, string initialPath)
         {
             if (String.IsNullOrEmpty(requestId) || requestId.Length > 128)

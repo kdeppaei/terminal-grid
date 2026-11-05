@@ -11,17 +11,42 @@
   var capturedValues = [], captureRenderTimer = null, captureAutoOpened = false, captureDragging = false;
   var commandDraft = null, draftTarget = null, focusedEditor = null;
   var rightClickMode = 'quick';
-  var pathCommandTarget = null, pathPickPending = null;
+  var pathCommandTarget = null, pathPickPending = null, targetDiscoveryRequest = null, targetCandidates = [], flowPreparing = false;
+  function refreshTargetOptions() {
+    $('pathCommandFields').querySelectorAll('select[data-target-key]').forEach(function (select) {
+      var key = select.dataset.targetKey, kind = window.TerminalGridDefaults.fields[key][1];
+      select.textContent = ''; select.add(new Option('選擇偵測結果，或在下方手動輸入', ''));
+      var seen = new Set();
+      targetCandidates.concat(capturedValues.map(function (v) { return { value: v.address, label: '暫存 · ' + v.address, kind: 'saved' }; })).forEach(function (candidate) {
+        var value = candidate.value, ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) && value.split('.').every(function (n) { return Number(n) <= 255; });
+        var ipv6 = window.TerminalGridIPv6.isIPv6(value);
+        if (kind === 'device' ? candidate.kind !== 'device' : (!ipv4 && !ipv6) || (kind === 'local' || kind === 'local4') && candidate.kind !== 'local' || (kind === 'ipv4' || kind === 'local4') && !ipv4 || kind === 'ipv6' && !ipv6) return;
+        if (seen.has(value)) return; seen.add(value); select.add(new Option(candidate.label, value));
+      });
+    });
+  }
+  function discoverTargets() {
+    var target = pathCommandTarget; if (!target) return;
+    var id = uid('targets'); targetDiscoveryRequest = { id: id, target: target };
+    $('targetDiscoveryStatus').textContent = '正在讀取本機網卡與 adb devices -l…';
+    if (!send({ type: 'discoverCommandTargets', requestId: id, workspaceId: target.state.workspaceId, slot: target.state.slot, tabId: target.state.tabId })) $('targetDiscoveryStatus').textContent = '偵測尚未就緒，可手動輸入。';
+  }
   function allCommandPacks() { return window.TerminalGridDefaults.packs.concat(appConfig.commandPacks); }
-  function openPathCommand(state, text) {
-    if ($('pathCommandDialog').open) { showToast('請先完成目前路徑指令。'); return; }
-    pathCommandTarget = { state: state, generation: state.generation, text: text, id: uid('path-command') };
+  function openPathCommand(state, text, finish) {
+    if ($('pathCommandDialog').open) { showToast('請先完成目前參數選擇。'); if (finish) finish(null); return; }
+    text = window.TerminalGridDefaults.prepare(text);
+    pathCommandTarget = { state: state, generation: state.generation, text: text, id: uid('path-command'), finish: finish };
+    targetCandidates = [];
     var fields = $('pathCommandFields'); fields.textContent = '';
     window.TerminalGridDefaults.keys(text).forEach(function (key) {
       var spec = window.TerminalGridDefaults.fields[key], label = document.createElement('label'); label.className = 'field'; label.textContent = spec[0];
       var row = document.createElement('div'); row.className = 'folder-input-row';
       var input = document.createElement('input'); input.dataset.pathKey = key; input.required = true; input.value = spec[2]; input.setAttribute('aria-label', spec[0]); row.appendChild(input);
-      if (spec[1] !== 'text') (spec[1] === 'source' ? ['file', 'folder'] : [spec[1]]).forEach(function (kind) {
+      if (['device', 'ip', 'ipv4', 'ipv6', 'local', 'local4'].indexOf(spec[1]) >= 0) {
+        var select = document.createElement('select'); select.dataset.targetKey = key; select.setAttribute('aria-label', spec[0] + '偵測結果');
+        select.addEventListener('change', function () { if (this.value) input.value = this.value; }); label.appendChild(select);
+      }
+      if (['source', 'folder', 'apk'].indexOf(spec[1]) >= 0) (spec[1] === 'source' ? ['file', 'folder'] : [spec[1]]).forEach(function (kind) {
         var button = document.createElement('button'); button.type = 'button'; button.className = 'button'; button.textContent = kind === 'folder' ? '選資料夾…' : '選檔案…';
         button.addEventListener('click', function () {
           if (pathPickPending) return;
@@ -32,6 +57,9 @@
       label.appendChild(row); fields.appendChild(label);
     });
     $('pathCommandDialog').showModal();
+    refreshTargetOptions();
+    $('targetDiscoveryStatus').textContent = '';
+    if (fields.querySelector('select[data-target-key]')) discoverTargets();
   }
   var $ = function (id) { return document.getElementById(id); };
   var workspaceHost = $('workspaceHost');
@@ -912,6 +940,7 @@
   }
   async function insertCommand(state, value, captured) {
     if (!state || state.status !== 'running') { showToast('請先啟動要插入指令的終端分頁。'); return; }
+    if (!captured) value = window.TerminalGridDefaults.prepare(value);
     if (!captured && window.TerminalGridDefaults.keys(value).length) { openPathCommand(state, value); return; }
     if (state.terminal.hasSelection() || state.liveIntent) { replaceLiveSelection(state, value); return; }
     if (/[\r\n]/.test(value)) { showToast('指令包只接受單行指令；請編輯指令內容後重試。', true); return; }
@@ -925,6 +954,13 @@
   }
   function handleHostMessage(message) {
     if (!message || typeof message !== 'object' || typeof message.type !== 'string') return;
+    if (message.type === 'commandTargets') {
+      var discovery = targetDiscoveryRequest;
+      if (!discovery || discovery.id !== message.requestId || discovery.target !== pathCommandTarget || !$('pathCommandDialog').open) return;
+      targetDiscoveryRequest = null;
+      targetCandidates = Array.isArray(message.candidates) ? message.candidates.filter(function (c) { return c && typeof c.value === 'string' && typeof c.label === 'string'; }).slice(0,256) : [];
+      refreshTargetOptions(); $('targetDiscoveryStatus').textContent = message.message || '偵測完成。僅供選擇，遠端 IP 的連線狀態需由測試確認。'; return;
+    }
     if (message.type === 'commandPathPicked') {
       var request = pathPickPending;
       if (!request || request.id !== message.requestId) return;
@@ -1119,8 +1155,24 @@
     if (resolve) resolve(continueFlow);
   }
   async function runFlow() {
-    var flow = currentFlow(); if (!flow || flowRunning) return;
+    var flow = currentFlow(); if (!flow || flowRunning || flowPreparing) return;
+    flow = JSON.parse(JSON.stringify(flow));
     var workspace = flowWorkspace(flow);
+    flowPreparing = true;
+    try {
+      for (var p = 0; p < flow.steps.length; p++) {
+        var planned = flow.steps[p], tab = workspace.slots[planned.slot].tabs.find(function (t) { return t.id === planned.tabId; });
+        if (planned.action === 'start' && tab && window.TerminalGridDefaults.keys(window.TerminalGridDefaults.prepare(tab.command)).length) { showToast('請先在終端設定填妥啟動指令參數；範本請放在流程「輸入指令」步驟。', true); return; }
+        if (planned.action !== 'send') continue;
+        planned.text = window.TerminalGridDefaults.prepare(planned.text);
+        if (!window.TerminalGridDefaults.keys(planned.text).length) continue;
+        var targetState = getState(flow.workspaceId, planned.slot, planned.tabId);
+        if (!targetState) return;
+        var resolved = await new Promise(function (resolve) { openPathCommand(targetState, planned.text, resolve); });
+        if (resolved === null) return;
+        planned.text = resolved;
+      }
+    } finally { flowPreparing = false; }
     var summary = flow.steps.map(function (step, i) {
       var tab = workspace.slots[step.slot].tabs.find(function (t) { return t.id === step.tabId; }) || workspace.slots[step.slot].tabs[0];
       var verb = step.action === 'send' ? ((step.text || '（空指令）') + (step.enter ? '  ↵' : '')) : step.action === 'wait' ? '等待 ' + step.delayMs + ' ms' : step.action === 'pause' ? '等待使用者：' + (step.text || '完成操作後按繼續') : step.action === 'start' ? ('啟動 ' + tab.shell + (tab.exe ? ' · ' + tab.exe + ' ' + tab.args : '') + (tab.cwd ? ' · 目錄 ' + tab.cwd : '') + (tab.command ? '\n啟動指令：' + tab.command : '')) : '結束終端';
@@ -1337,15 +1389,22 @@
       try { localStorage.setItem('terminalGrid.showLineEditors', String(this.checked)); } catch (_) { }
       scheduleFit();
     });
-    $('pathCommandDialog').addEventListener('close', function () { pathCommandTarget = null; pathPickPending = null; });
+    $('refreshCommandTargets').addEventListener('click', discoverTargets);
+    $('pathCommandDialog').addEventListener('close', function () {
+      if (this.open) return;
+      var target = pathCommandTarget; pathCommandTarget = null; pathPickPending = null; targetDiscoveryRequest = null;
+      if (target && target.finish) target.finish(null);
+    });
     $('pathCommandForm').addEventListener('submit', function (event) {
       event.preventDefault(); var target = pathCommandTarget;
-      if (!target || !sameSession(target.state, target.generation)) { showToast('目標終端已變更，請重新插入指令。', true); return; }
+      if (!target || getState(target.state.workspaceId, target.state.slot, target.state.tabId) !== target.state || (target.finish ? target.state.generation !== target.generation : !sameSession(target.state, target.generation))) { showToast('目標終端已變更，請重新插入指令。', true); return; }
       if (pathPickPending) { showToast('請先完成檔案選擇。'); return; }
       var values = {}; $('pathCommandFields').querySelectorAll('input').forEach(function (input) { values[input.dataset.pathKey] = input.value; });
       try {
-        var text = window.TerminalGridDefaults.resolve(target.text, values, target.state.sessionShell);
-        $('pathCommandDialog').close(); insertCommand(target.state, text);
+        var shell = target.state.status === 'running' ? target.state.sessionShell : getTabConfig(getWorkspace(target.state.workspaceId), target.state.slot, target.state.tabId).shell;
+        var text = window.TerminalGridDefaults.resolve(target.text, values, shell);
+        pathCommandTarget = null; pathPickPending = null; targetDiscoveryRequest = null;
+        $('pathCommandDialog').close(); if (target.finish) target.finish(text); else insertCommand(target.state, text);
       } catch (error) { showToast(error.message, true); }
     });
     try { if (localStorage.getItem('terminalGrid.rightClickMode') === 'menu') rightClickMode = 'menu'; } catch (_) { }

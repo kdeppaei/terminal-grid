@@ -1,5 +1,7 @@
 # Local verification
 
+3.7: `Test.ps1` runs TargetDiscoveryTests (ADB output parser, no device needed). Workbench tests mock discovery replies to verify device selection, local binding versus remote targets, stale replies, workflow parameter confirmation/execution and preservation of the stored template. Physical USB/wireless device enumeration requires an installed adb and separately authorized device.
+
 `node tests/DefaultCommandsTests.js` validates the 10 built-in packs, 81 snippets and CMD/PowerShell path quoting. Workbench tests additionally cover APK picker responses, push file/folder choices, pull destination folders, cancel/restart guards, copying built-ins to editable packs and input-row visibility/persistence. Native pickers are mocked in browser tests; no external tool or Android device is exercised.
 
 Run from a normal PowerShell session on supported 64-bit Windows with .NET Framework 4.8:

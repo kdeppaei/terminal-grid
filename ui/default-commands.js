@@ -2,9 +2,14 @@
   'use strict';
   // Built-in reference templates are separate from editable/exported user packs.
   var packs = [];
+  function prepare(text) {
+    return text.replace(/\bDEVICE_SERIAL\b/g, '{{SERIAL}}').replace(/\b192\.0\.2\.10\b/g, '{{TARGET_IPV4}}')
+      .replace(/\b192\.0\.2\.20\b/g, '{{LOCAL_IPV4}}').replace(/2001:db8::10\b/g, '{{TARGET_IPV6}}')
+      .replace(/\bSERVER_IP\b/g, '{{TARGET_IP}}').replace(/\bLOCAL_IP\b/g, '{{LOCAL_IP}}').replace(/\bDEVICE_IP\b/g, '{{TARGET_IP}}');
+  }
   function pack(id, name, rows) {
     packs.push({ id: '@default-' + id, name: 'Default · ' + name, builtin: true,
-      commands: rows.map(function (r, i) { return { id: id + '-' + i, name: r[0], command: r[1], description: r[2] }; }) });
+      commands: rows.map(function (r, i) { return { id: id + '-' + i, name: r[0], command: prepare(r[1]), description: r[2] }; }) });
   }
   pack('adb-basic', 'ADB／常用', [
     ['版本與說明', 'adb version', '需先安裝 Android Platform Tools 並加入 PATH。'],
@@ -108,7 +113,9 @@
     ['介面 MTU', 'netsh interface ipv4 show subinterfaces', '只查詢，不修改 MTU。']
   ]);
   var fields = {
-    SERIAL: ['裝置序號', 'text', 'DEVICE_SERIAL'], APK_FILE: ['本機 APK', 'apk', ''],
+    SERIAL: ['ADB 裝置序號', 'device', ''], APK_FILE: ['本機 APK', 'apk', ''],
+    TARGET_IP: ['遠端目標 IP', 'ip', ''], TARGET_IPV4: ['遠端目標 IPv4', 'ipv4', ''], TARGET_IPV6: ['遠端目標 IPv6（含 scope）', 'ipv6', ''],
+    LOCAL_IP: ['本機綁定 IP', 'local', ''], LOCAL_IPV4: ['本機綁定 IPv4', 'local4', ''],
     LOCAL_SOURCE: ['本機來源檔案／資料夾', 'source', ''], LOCAL_FOLDER: ['本機目的資料夾', 'folder', ''],
     REMOTE_PATH: ['裝置路徑', 'text', '/sdcard/Download/test.dat']
   };
@@ -122,7 +129,7 @@
     if (/\\$/.test(value)) value = value.replace(/\\+$/, '') + '\\.';
     return '"' + value + '"';
   }
-  function keys(text) { return Array.from(new Set((text.match(/\{\{[A-Z_]+\}\}/g) || []).map(function (s) { return s.slice(2, -2); }))).filter(function (k) { return fields[k]; }); }
-  function resolve(text, values, shell) { return text.replace(/\{\{([A-Z_]+)\}\}/g, function (_, key) { if (!fields[key]) throw Error('未知範本欄位：' + key); return quote(values[key], shell); }); }
-  root.TerminalGridDefaults = { packs: packs, fields: fields, keys: keys, resolve: resolve };
+  function keys(text) { return Array.from(new Set((text.match(/\{\{[A-Z][A-Z0-9_]*\}\}/g) || []).map(function (s) { return s.slice(2, -2); }))).filter(function (k) { return fields[k]; }); }
+  function resolve(text, values, shell) { return text.replace(/\{\{([A-Z][A-Z0-9_]*)\}\}/g, function (_, key) { if (!fields[key]) throw Error('未知範本欄位：' + key); return quote(values[key], shell); }); }
+  root.TerminalGridDefaults = { packs: packs, fields: fields, keys: keys, resolve: resolve, prepare: prepare };
 }(typeof window === 'undefined' ? globalThis : window));
