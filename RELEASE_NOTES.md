@@ -1,4 +1,13 @@
-# Terminal Grid 3.7.1
+# Terminal Grid 3.7.2
+
+3.7.2 強化 Ping／Ping -6 的本機候選選擇：IPv4 可直接選偵測到的本機／ADB IP；IPv6 link-local 會自動補 Windows 所需的數字介面 scope（例如 `%12`），下拉標籤顯示對應 WLAN／LAN 名稱。保留手動輸入與既有設定。
+
+## 驗證
+
+- Default 指令包、TargetDiscovery、ConPTY 與 19 組 Workbench GUI 測試通過。
+- 未連接 Android 實機；ADB／遠端 IP 可達性仍由使用者測試環境確認。
+
+## 3.7.1
 
 3.7.1 修正手動填入的 IP 與範例相同時重複跳出參數視窗；已補回歸測試。
 

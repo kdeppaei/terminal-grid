@@ -14,6 +14,13 @@ namespace TerminalGridIntegrated
         public string value { get; set; }
         public string label { get; set; }
         public string kind { get; set; }
+        // For local IPv6 candidates the command value uses the Windows zone
+        // index (for example %12), while the friendly adapter name remains
+        // visible in the picker. Windows ping requires the numeric zone id;
+        // the name is metadata for humans and is never substituted into the
+        // command as an invalid scope.
+        public string interfaceName { get; set; }
+        public int interfaceIndex { get; set; }
     }
     public sealed class TargetDiscoveryResult
     {
@@ -43,9 +50,24 @@ namespace TerminalGridIntegrated
             try {
                 foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces()) {
                     if (adapter.OperationalStatus != OperationalStatus.Up || adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
-                    foreach (UnicastIPAddressInformation info in adapter.GetIPProperties().UnicastAddresses) {
+                    IPInterfaceProperties properties = adapter.GetIPProperties();
+                    int ipv6Index = 0;
+                    try { ipv6Index = properties.GetIPv6Properties() == null ? 0 : properties.GetIPv6Properties().Index; } catch (Exception) { }
+                    foreach (UnicastIPAddressInformation info in properties.UnicastAddresses) {
                         if (info.Address.AddressFamily != AddressFamily.InterNetwork && info.Address.AddressFamily != AddressFamily.InterNetworkV6) continue;
-                        result.candidates.Add(new TargetCandidate { value = info.Address.ToString(), label = "本機 · " + adapter.Name + " · " + info.Address, kind = "local" });
+                        string value = info.Address.ToString();
+                        bool scoped = info.Address.AddressFamily == AddressFamily.InterNetworkV6 && info.Address.IsIPv6LinkLocal;
+                        // NetworkInterface normally exposes a link-local address
+                        // without its zone. Add the interface index required by
+                        // Windows ping, while keeping the adapter name in label.
+                        if (scoped && value.IndexOf('%') < 0 && ipv6Index > 0) value += "%" + ipv6Index;
+                        string label = "本機 · " + adapter.Name + " · " + value;
+                        if (scoped && ipv6Index > 0) label += "（IPv6 介面 " + ipv6Index + "）";
+                        result.candidates.Add(new TargetCandidate {
+                            value = value, label = label, kind = "local",
+                            interfaceName = adapter.Name,
+                            interfaceIndex = info.Address.AddressFamily == AddressFamily.InterNetworkV6 ? ipv6Index : 0
+                        });
                     }
                 }
             } catch (Exception) { result.message = "部分網卡資訊無法讀取。"; }

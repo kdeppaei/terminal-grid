@@ -98,8 +98,8 @@
   ]);
   pack('network-basic', 'Windows 網路／常用', [
     ['網路介面', 'ipconfig /all', 'Windows CMD／PowerShell。'],
-    ['IPv4 Ping', 'ping -n 10 192.0.2.10', '替換目標，送 10 次。'],
-    ['IPv6 Ping', 'ping -6 -n 10 2001:db8::10', '替換目標，link-local 需 scope。'],
+    ['IPv4 Ping（自選 IP）', 'ping -n 10 192.0.2.10', '插入時可直接選擇已偵測的 IPv4；也可手動輸入，送 10 次。'],
+    ['IPv6 Ping（自選 IP／介面）', 'ping -6 -n 10 2001:db8::10', '插入時可選 IPv6；link-local 會自動帶 Windows IPv6 介面 scope（例如 %12），清單同時顯示 WLAN／LAN 名稱。'],
     ['路由表', 'route print', '查詢路由，不修改設定。'],
     ['DNS 查詢', 'nslookup example.com', '替換測試網域。'],
     ['路由追蹤', 'tracert -d 192.0.2.10', '不反查 DNS。']
