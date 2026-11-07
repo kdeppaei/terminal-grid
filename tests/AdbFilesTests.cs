@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -9,6 +10,9 @@ class AdbFilesTests {
     static void Check(bool ok, string label) { if (!ok) throw new Exception(label); count++; }
     static string Reject(Action action) { try { action(); } catch (Exception ex) { count++; return ex.Message; } throw new Exception("Expected rejection"); }
     public static int Main(string[] args) {
+        // Reproduce UTF-8 consoles used by CI: .NET Framework's redirected
+        // text stdin writes a BOM before any bytes sent through BaseStream.
+        Console.InputEncoding = new UTF8Encoding(true);
         string root = Path.Combine(args[1], "files-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
         Environment.SetEnvironmentVariable("TGRID_FILES_FIXTURE", root);
         string remote = Path.Combine(root, "remote.cfg"), backups = Path.Combine(root, "backups");
@@ -41,9 +45,32 @@ class AdbFilesTests {
         Check(File.ReadAllBytes(Path.Combine(root, "pushed.bin")).SequenceEqual(new byte[] { 0, 1, 255 }), "binary push with spaces");
         byte[] bom = new UTF8Encoding(true).GetPreamble().Concat(Encoding.UTF8.GetBytes("x=1\r\n")).ToArray();
         Check(AdbFiles.Encode("x=2\n", bom).Take(3).SequenceEqual(bom.Take(3)) && AdbFiles.Decode(AdbFiles.Encode("x=2\n", bom)) == "x=2\r\n", "BOM and CRLF preservation");
+        client.Save(path, initial, bom); Check(File.ReadAllBytes(remote).SequenceEqual(bom), "exactly one original BOM after raw stdin write");
+        client.Save(path, bom, new byte[0]); Check(new FileInfo(remote).Length == 0, "empty file has no encoding preamble");
+        byte[] large = Encoding.UTF8.GetBytes(new string('x', 1024 * 1024) + "\n設定=2\n");
+        client.Save(path, new byte[0], large); Check(File.ReadAllBytes(remote).SequenceEqual(large), "large stdin drains without truncation or deadlock");
+        Check(Console.InputEncoding.GetPreamble().Length == 3, "host console encoding remains unchanged");
         Reject(() => AdbFiles.Decode(new byte[] { 0 })); Reject(() => AdbFiles.Decode(new byte[] { 255 }));
         File.WriteAllBytes(remote, new byte[AdbFiles.TextLimit + 1]); Reject(() => client.Read(path));
         using (var cancel = new CancellationTokenSource()) { cancel.CancelAfter(200); Reject(() => new AdbFiles(args[0], "PHONE_TEST", backups, cancel.Token).Run(new[] { "shell", "-T", "hang" })); }
+        string timedOut = Reject(() => client.Run(new[] { "shell", "-T", "hang" }, large, 200));
+        Check(timedOut.Contains("逾時"), "blocked input writer stops on timeout: " + timedOut);
+        File.WriteAllBytes(remote, initial);
+        Action missingExecutable = () => {
+            try { new AdbFiles(Path.Combine(root, "missing.exe"), "PHONE_TEST", backups, CancellationToken.None).Read(path); throw new Exception("Missing executable started"); }
+            catch (System.ComponentModel.Win32Exception) { }
+        };
+        missingExecutable(); // Warm localized exception resources before handle measurement.
+        using (var self = Process.GetCurrentProcess()) {
+            GC.Collect(); GC.WaitForPendingFinalizers();
+            self.Refresh(); int handles = self.HandleCount;
+            for (int i = 0; i < 10; i++) {
+                client.Read(path);
+                missingExecutable();
+            }
+            GC.Collect(); GC.WaitForPendingFinalizers();
+            self.Refresh(); Check(self.HandleCount <= handles + 4, "pipe handles released after reads and failed launches: " + handles + " -> " + self.HandleCount);
+        }
         Console.WriteLine("ADB files: " + count + " checks passed; fixture subprocesses only, no physical device."); return 0;
     }
 }

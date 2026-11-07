@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.9.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.9.1.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -162,7 +162,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.9.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.9.1", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }

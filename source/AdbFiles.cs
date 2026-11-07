@@ -62,17 +62,14 @@ namespace TerminalGridIntegrated
         {
             cancel.ThrowIfCancellationRequested();
             var args = new[] { "-s", serial }.Concat(arguments);
-            var info = new ProcessStartInfo(adb, String.Join(" ", args.Select(ShellBuilder.Quote))) {
-                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true
-            };
-            using (var process = new Process { StartInfo = info }) {
-                process.Start();
+            using (var process = AdbProcess.Start(adb, String.Join(" ", args.Select(ShellBuilder.Quote)))) {
                 Action kill = delegate { try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { } };
                 using (cancel.Register(kill)) {
-                    Task<byte[]> output = transfer ? null : ReadBounded(process.StandardOutput.BaseStream, TextLimit);
-                    Task<string> summary = transfer ? ReadTail(process.StandardOutput) : null;
+                    Task<byte[]> output = transfer ? null : ReadBounded(process.StandardOutput, TextLimit);
+                    Task<string> summary = transfer ? ReadTail(new StreamReader(process.StandardOutput, Encoding.UTF8)) : null;
                     Task<string> errors = ReadTail(process.StandardError);
-                    Task writer = Task.Run(delegate { try { if (input != null) process.StandardInput.BaseStream.Write(input, 0, input.Length); } finally { process.StandardInput.Close(); } });
+                    Stream stdin = process.StandardInput;
+                    Task writer = Task.Run(delegate { try { if (input != null) stdin.Write(input, 0, input.Length); } finally { stdin.Close(); } });
                     writer.ContinueWith(t => { var observed = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
                     var timer = Stopwatch.StartNew();
                     try {
@@ -86,7 +83,13 @@ namespace TerminalGridIntegrated
                         if (process.ExitCode != 0) throw new IOException("ADB 失敗（" + process.ExitCode + "）：" + errors.Result + (transfer ? summary.Result : "") + "\n若顯示 Permission denied／Read-only file system，請由 RD 確認韌體與寫入權限。");
                         if (!writer.Wait(5000)) throw new TimeoutException("ADB 輸入逾時。");
                         return transfer ? Encoding.UTF8.GetBytes(summary.Result) : output.Result;
-                    } finally { kill(); }
+                    } finally {
+                        kill();
+                        // A timed-out child may have a writer blocked in the
+                        // pipe. Let it unwind before disposing its stream;
+                        // broken-pipe cleanup must not mask the original error.
+                        try { writer.Wait(5000); } catch (AggregateException) { }
+                    }
                 }
             }
         }

@@ -55,7 +55,7 @@ try {
     $nanTest = Build-Test -Name 'NanRunnerTests' -Sources ($nanSources + 'tests\NanRunnerTests.cs') -References $nanRefs -EntryPoint 'NanRunnerTests'
     Invoke-CheckedNative -Executable $nanTest -Arguments @($nanRunner, (Split-Path $nanFake))
     $filesFake = Build-Test -Name 'FilesFakeAdb' -Sources @('tests\FilesFakeAdb.cs') -References @('System.dll', 'System.Core.dll')
-    $filesTest = Build-Test -Name 'AdbFilesTests' -Sources @('source\Config.cs', 'source\AdbFiles.cs', 'tests\AdbFilesTests.cs') -References $nanRefs
+    $filesTest = Build-Test -Name 'AdbFilesTests' -Sources @('source\Config.cs', 'source\AdbProcess.cs', 'source\AdbFiles.cs', 'tests\AdbFilesTests.cs') -References $nanRefs
     Invoke-CheckedNative -Executable $filesTest -Arguments @($filesFake, $testWork)
 
     if (-not $ConfigOnly) {
