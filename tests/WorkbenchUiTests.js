@@ -72,6 +72,10 @@ async function main() {
     }
     const right = () => mount.click({ button: 'right', position: { x: 80, y: 70 } });
     await raw.focus(); await page.locator('#commandButton').click();
+    await reset(); await page.locator('#deviceFiles-commands').click();
+    assert.deepEqual(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'deviceFilesOpen')), [{ type: 'deviceFilesOpen' }]);
+    assert.deepEqual(await inputs(), []);
+    pass('device file editor opens through native host without injecting a terminal command');
     assert.equal(await page.locator('#commandPackSelect option').count(), await page.evaluate(() => window.TerminalGridDefaults.packs.length + 1));
     assert.equal(await page.locator('#renamePackButton').isDisabled(), true);
     await page.locator('#commandList .command-item').filter({ hasText: '安裝 APK（選檔）' }).getByRole('button', { name: '插入', exact: true }).click();

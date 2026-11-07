@@ -122,6 +122,18 @@
     ['iperf 2 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf -V -s -p 5001', 'DUT1 server；兩端必須同為 iperf 2。'],
     ['手機鏡像', 'scrcpy -s {{SERIAL}}', '開啟指定手機的 scrcpy，手動操作 NAN APK 或 Quick Share。']
   ]);
+  pack('device-files', '裝置設定／Logs／local tmp', [
+    ['讀取 wifi.cfg', 'adb -s {{SERIAL}} shell cat /vendor/firmware/wifi.cfg', '圖形編輯與備份寫回請按指令庫上方「裝置檔案」。'],
+    ['備份 wifi.cfg（選本機資料夾）', 'adb -s {{SERIAL}} pull /vendor/firmware/wifi.cfg {{LOCAL_FOLDER}}', '讀取需有權限；不修改手機。'],
+    ['Push RD wifi.cfg（選檔）', 'adb -s {{SERIAL}} push {{LOCAL_SOURCE}} /vendor/firmware/wifi.cfg', '此終端指令會覆寫，請先備份；圖形窗口另提供自動備份與讀回驗證。'],
+    ['Pull sdcard logs', 'adb -s {{SERIAL}} pull /sdcard/log/ {{LOCAL_FOLDER}}', '選本機目的資料夾。裝置檔案窗口會自動分序號／時間存檔。'],
+    ['Pull debuglogger', 'adb -s {{SERIAL}} pull /data/debuglogger {{LOCAL_FOLDER}}', '完整抓取資料夾；權限不足請由 RD 確認手機設定。'],
+    ['列出 local tmp', 'adb -s {{SERIAL}} shell ls -la /data/local/tmp', '確認測試工具與檔案。'],
+    ['Push 到 local tmp', 'adb -s {{SERIAL}} push {{LOCAL_SOURCE}} /data/local/tmp/', '選本機檔案或資料夾；保留原檔名，可能覆寫。'],
+    ['Pull local tmp', 'adb -s {{SERIAL}} pull /data/local/tmp/ {{LOCAL_FOLDER}}', '抓取暫存檔與測試產物。'],
+    ['iperf3 設為可執行', 'adb -s {{SERIAL}} shell chmod 755 /data/local/tmp/iperf3', '只調整指定工具的執行權限，請先確認檔案來源與手機路徑。'],
+    ['執行 local tmp iperf3 版本', 'adb -s {{SERIAL}} shell /data/local/tmp/iperf3 --version', 'NAN 窗口的手機工具路徑可填此路徑。']
+  ]);
   var fields = {
     SERIAL: ['ADB 裝置序號', 'device', ''], APK_FILE: ['本機 APK', 'apk', ''],
     TARGET_IP: ['遠端目標 IP', 'ip', ''], TARGET_IPV4: ['遠端目標 IPv4', 'ipv4', ''], TARGET_IPV6: ['遠端目標 IPv6（含 scope）', 'ipv6', ''],

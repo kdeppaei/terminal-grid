@@ -1,4 +1,12 @@
-# Terminal Grid 3.8.0
+# Terminal Grid 3.9.0
+
+- 新增原生「裝置檔案 · cfg／Logs」窗口：選手機、讀取／搜尋／編輯 wifi.cfg，可改路徑與檔名（含空格），載入 RD 本機 cfg 與另存草稿。
+- 設定寫回前顯示目標、檢查原檔是否改變、備份原檔與草稿，寫後讀回驗證。保留原 UTF-8 BOM／換行格式；不自動 root／remount。寫入失敗或取消時提供備份位置，手機可能已部分更新。
+- `/sdcard/log/`、`/data/debuglogger`、`/data/local/tmp/` 快捷路徑；Pull 新建序號／時間目錄，支援取消與保留部分下載；一般檔案 Push 有目標確認。
+- Default「裝置設定／Logs／local tmp」新增 10 條範本，合計 12 包 99 條；舊版個人設定與指令保留。
+- 25 項原生 ADB 檔案替身測試、21 組 Workbench UI 與原有終端測試；檢查原生窗口並修正縮放後的裁切。未連接手機進行實際設定／Log 讀寫。
+
+## 3.8.0
 
 - 自動化／更多新增「NAN／NDP 雙手機」：選兩台手機，建立可保存與匯出 .tgridflow 的六格工作區，兩個 scrcpy、Server、Ping、Traffic 與雙手機 ADB Shell 分頁。
 - 人工完成 APK 的 NAN／NDP 後按繼續，即時讀取 DUT1 指定介面 IPv6，立刻在 DUT2 執行 ping6。DUT1 查詢介面與 DUT2 scope 分開，預設 aware_data0。再人工確認 Ping 回覆及 server 監聽後開始流量。

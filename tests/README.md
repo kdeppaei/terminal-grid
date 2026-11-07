@@ -1,5 +1,7 @@
 # Local verification
 
+3.9: `Test.ps1` runs `AdbFilesTests` against `FilesFakeAdb` (25 checks) for raw UTF-8, BOM/newlines, paths with spaces/apostrophes, conflict rejection, backups, permission failures, readback, unique pull destinations, binary push, size limits and cancellation. No actual phone is used. Workbench has 21 groups including the native file-window bridge. `DeviceFilesPreview.cs` is an optional standalone WinForms preview for visual checks; do not compile it into the main app. Catalog now contains 12 packs / 99 commands.
+
 3.8: `Test.ps1` also runs NanRunnerTests against a compiled fake adb child process (16 assertions). This checks DUT routing, source/destination interfaces, fresh IPv6 reads, ip/ifconfig fallback, ambiguity/tentative rejection, remote argument construction, tool families and child exit codes. No phone is contacted. `node tests/NanWorkflowTests.js` checks generated workflow modes and parameters; Workbench UI covers the wizard, two manual pauses, six-cell creation and export. Device-specific NDP retention, ADB PTY cleanup and actual throughput require physical Samsung phones. The catalog now contains 11 packs and 89 commands.
 
 3.7: `Test.ps1` runs TargetDiscoveryTests (ADB output parser, no device needed). Workbench tests mock discovery replies to verify device selection, local binding versus remote targets, stale replies, workflow parameter confirmation/execution and preservation of the stored template. Physical USB/wireless device enumeration requires an installed adb and separately authorized device.

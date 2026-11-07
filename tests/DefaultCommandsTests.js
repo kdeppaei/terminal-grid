@@ -2,8 +2,8 @@
 const assert = require('node:assert/strict');
 require('../ui/default-commands.js');
 const d = globalThis.TerminalGridDefaults;
-assert.equal(d.packs.length, 11);
-assert.equal(new Set(d.packs.map(p => p.id)).size, 11);
+assert.equal(d.packs.length, 12);
+assert.equal(new Set(d.packs.map(p => p.id)).size, 12);
 const all = d.packs.flatMap(p => p.commands);
 for (const p of d.packs) {
   assert.ok(p.builtin && p.commands.length && p.commands.length <= 128);

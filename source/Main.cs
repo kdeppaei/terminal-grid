@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.8.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.9.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -40,6 +40,7 @@ namespace TerminalGridIntegrated
         AppConfig config;
         bool closing, closeApproved, ready, folderPickerOpen;
         string loadWarning = "";
+        DeviceFilesForm deviceFiles;
 
         public TerminalForm()
         {
@@ -161,7 +162,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.8.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.9.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -190,6 +191,7 @@ namespace TerminalGridIntegrated
                     return;
                 }
                 if (type == "import") { Ui(ImportConfig); return; }
+                if (type == "deviceFilesOpen") { Ui(delegate { if (deviceFiles == null || deviceFiles.IsDisposed) deviceFiles = new DeviceFilesForm(); if (!deviceFiles.Visible) deviceFiles.Show(this); deviceFiles.Activate(); }); return; }
                 if (type == "flowOpen") { Ui(OpenFlow); return; }
                 if (type == "flowSave") { Ui(delegate { SaveFlow(StringValue(message, "text")); }); return; }
                 if (type == "commandPackOpen") { Ui(OpenCommandPack); return; }

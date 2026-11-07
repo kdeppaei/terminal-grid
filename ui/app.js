@@ -1407,6 +1407,11 @@
   }
 
   function initialize() {
+    ['options', 'commands'].forEach(function (place) {
+      var button = document.createElement('button'); button.type = 'button'; button.className = 'button'; button.id = 'deviceFiles-' + place; button.textContent = '裝置檔案 · cfg／Logs…';
+      button.addEventListener('click', function () { if (hostReady) send({ type: 'deviceFilesOpen' }); });
+      (place === 'options' ? $('appOptions').querySelector('.app-options-menu') : $('commandDialog').querySelector('.flow-toolbar')).appendChild(button);
+    });
     ['flow', 'options'].forEach(function (place) {
       var button = document.createElement('button'); button.type = 'button'; button.className = 'button'; button.id = place === 'flow' ? 'nanWorkflowButton' : 'nanOptionsButton'; button.textContent = 'NAN／NDP 雙手機…';
       button.addEventListener('click', openNanDialog);
