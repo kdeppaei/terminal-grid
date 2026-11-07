@@ -81,6 +81,21 @@
   <div id="terminalContextMenu" class="terminal-context-menu" hidden></div>
   <dialog id="pathCommandDialog" class="modal" aria-labelledby="pathCommandTitle"><form id="pathCommandForm"><div class="modal-heading"><h2 id="pathCommandTitle">選擇裝置、IP 與路徑</h2><button type="button" class="icon-button" data-close="pathCommandDialog" aria-label="取消參數選擇">×</button></div><div class="modal-content"><p class="help-note">選擇偵測到的裝置／IP，或手動輸入。本機網卡 IP 不代表遠端伺服器。插入不執行；流程需另外確認執行。</p><button type="button" id="refreshCommandTargets" class="button">重新偵測裝置／IP</button><p id="targetDiscoveryStatus" class="help-note" role="status"></p><div id="pathCommandFields"></div></div><div class="modal-actions"><button type="button" class="button quiet" data-close="pathCommandDialog">取消</button><button type="submit" class="button primary">套用參數</button></div></form></dialog>
 
+  <dialog id="nanDialog" class="modal" aria-labelledby="nanTitle"><form id="nanForm">
+    <div class="modal-heading"><div><span class="eyebrow">WI-FI AWARE</span><h2 id="nanTitle">NAN／NDP 雙手機流程</h2></div><button type="button" class="icon-button" data-close="nanDialog" aria-label="關閉 NAN 設定">×</button></div>
+    <div class="modal-content">
+      <p class="help-note">建立六格工作區與可編輯、可另存的流程。scrcpy → 等待 APK 建立 NDP → 即時查 DUT1 IPv6 → DUT2 持續 ping6 → 確認後傳流量。</p>
+      <button id="nanDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="nanStatus" role="status" class="help-note"></p>
+      <div class="form-two"><label class="field">DUT1 · Server<input id="nanDut1" list="nanDevices" required placeholder="序號"></label><label class="field">DUT2 · Client<input id="nanDut2" list="nanDevices" required placeholder="另一台序號"></label></div><datalist id="nanDevices"></datalist>
+      <div class="form-two"><label class="field">DUT1 查詢介面<input id="nanIf1" value="aware_data0" required></label><label class="field">DUT2 發送介面（scope）<input id="nanIf2" value="aware_data0" required></label></div>
+      <div class="form-two"><label class="field">測試模式<select id="nanTool"><option value="iperf3">iperf3 流量</option><option value="iperf">iperf 2 流量</option><option value="share">Quick Share · 手動傳檔＋Ping</option></select></label><label class="field">傳輸量（-n）<input id="nanAmount" value="1300M" required></label></div>
+      <div class="form-two"><label class="field">DUT1 工具名稱／Android 路徑<input id="nanBin1" value="iperf3" required></label><label class="field">DUT2 工具名稱／Android 路徑<input id="nanBin2" value="iperf3" required></label></div>
+      <label class="field">Port<input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
+      <label class="field">本機 adb／scrcpy 資料夾（留空使用 PATH）<div class="folder-input-row"><input id="nanFolder" placeholder="例如 D:\Tools\scrcpy"><button id="nanBrowse" type="button" class="button">選資料夾…</button></div></label>
+      <p class="help-note">IPv6 在按繼續後才查詢；每次重新啟動 Ping／Traffic 都重新查詢。% 後使用 DUT2 的 Android 介面名稱。手機需已安裝可執行的 iperf，兩端版本系列須相同。1300M 為 1,363,148,800 bytes；精確 1.3 GB 可填 1300000000。</p>
+      <p class="help-note">Ping、Server 在流量結束後保留，可用 Ctrl+C／停止該格結束。Ping 有助維持活動流量，但無法保證 APK 不釋放 NDP。Quick Share 由使用者操作，實際連線路徑依手機決定。</p>
+    </div><div class="modal-actions"><button type="button" class="button quiet" data-close="nanDialog">取消</button><button type="submit" class="button primary">建立工作區與流程</button></div>
+  </form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
@@ -89,6 +104,7 @@
   <script src="command-draft.js"></script>
   <script src="live-replace.js"></script>
   <script src="default-commands.js"></script>
+  <script src="nan-workflow.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

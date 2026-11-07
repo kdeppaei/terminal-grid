@@ -112,6 +112,16 @@
     ['監聽 port 與 PID', 'netstat -ano', 'Windows CMD／PowerShell。'],
     ['介面 MTU', 'netsh interface ipv4 show subinterfaces', '只查詢，不修改 MTU。']
   ]);
+  pack('nan', 'NAN／NDP 雙手機', [
+    ['裝置與序號', 'adb devices -l', '完整自動流程：自動化 → NAN／NDP 雙手機。'],
+    ['手機互動 Shell', 'adb -s {{SERIAL}} shell', 'DUT1／DUT2 分別開一格，手動調整指令。'],
+    ['Aware IPv6', 'adb -s {{SERIAL}} shell ip -6 addr show dev aware_data0', '查詢指定手機 aware_data0；介面不同請修改。'],
+    ['Aware ifconfig', 'adb -s {{SERIAL}} shell ifconfig aware_data0', '只查 Aware 介面，避免誤選 wlan0 的 IP。'],
+    ['iperf3 版本', 'adb -s {{SERIAL}} shell iperf3 --version', '手機需先安裝；若不在 PATH，改填 /data/local/tmp/iperf3 等路徑。'],
+    ['iperf3 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf3 -6 -s -p 5201', 'DUT1 前景 server，Ctrl+C 結束。Client／Ping 的動態 IPv6 請用雙手機流程。'],
+    ['iperf 2 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf -V -s -p 5001', 'DUT1 server；兩端必須同為 iperf 2。'],
+    ['手機鏡像', 'scrcpy -s {{SERIAL}}', '開啟指定手機的 scrcpy，手動操作 NAN APK 或 Quick Share。']
+  ]);
   var fields = {
     SERIAL: ['ADB 裝置序號', 'device', ''], APK_FILE: ['本機 APK', 'apk', ''],
     TARGET_IP: ['遠端目標 IP', 'ip', ''], TARGET_IPV4: ['遠端目標 IPv4', 'ipv4', ''], TARGET_IPV6: ['遠端目標 IPv6（含 scope）', 'ipv6', ''],

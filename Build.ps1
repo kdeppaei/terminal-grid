@@ -9,4 +9,7 @@ if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) { New-It
 $arguments = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/codepage:65001', "/out:$OutputPath", "/win32manifest:$PSScriptRoot\source\app.manifest", '/r:System.dll', '/r:System.Core.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll', '/r:System.Web.Extensions.dll', "/r:$PSScriptRoot\Microsoft.Web.WebView2.Core.dll", "/r:$PSScriptRoot\Microsoft.Web.WebView2.WinForms.dll")
 & $compiler $arguments $sources
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+$nanOutput = Join-Path $outputDirectory 'TerminalGridNan.exe'
+& $compiler /nologo /target:exe /platform:x64 /optimize+ /codepage:65001 "/out:$nanOutput" /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'source\Config.cs') (Join-Path $PSScriptRoot 'source\nan\NanRunner.cs')
+if ($LASTEXITCODE -ne 0) { throw 'NAN helper build failed.' }
 Write-Host "Built: $OutputPath"

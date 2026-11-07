@@ -1,0 +1,14 @@
+'use strict';
+const assert = require('node:assert/strict');
+require('../ui/nan-workflow.js');
+const create = globalThis.TerminalGridNan.create;
+const v = { dut1: 'DUT_ONE', dut2: 'DUT_TWO', if1: 'aware_data1', if2: 'aware_data0', tool: 'iperf3', bin1: '/data/local/tmp/iperf3', bin2: 'iperf3', amount: '1300M', port: '5201', folder: 'C:\\工具 folder\\' };
+const flow = create(v), share = create({ ...v, tool: 'share' });
+assert.equal(flow.workspace.slots[5].tabs.length, 2);
+assert.deepEqual(flow.steps.filter(s => s.action === 'start').map(s => s.slot), [0, 1, 3, 2, 4]);
+assert.deepEqual(share.steps.filter(s => s.action === 'start').map(s => s.slot), [0, 1, 3]);
+assert.equal(share.steps.filter(s => s.action === 'pause').length, 2);
+assert.ok(!JSON.stringify(flow).includes('fe80::'), 'dynamic IPv6 must not be baked into saved flows');
+assert.match(flow.workspace.slots[3].tabs[0].args, /--folder "C:\\工具 folder\\\\"$/);
+for (const patch of [{ dut2: v.dut1 }, { if2: 'aware_data0;reboot' }, { bin1: 'iperf3 && reboot' }, { amount: '0' }, { port: '70000' }, { folder: 'D:\\bad\npath' }]) assert.throws(() => create({ ...v, ...patch }));
+console.log('NAN workflow: routing, pauses, Quick Share, dynamic address, quoting and invalid parameters passed.');

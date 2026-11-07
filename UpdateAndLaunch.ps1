@@ -6,6 +6,9 @@ New-Item -ItemType Directory -Path $release -Force | Out-Null
 $stage = Join-Path $release 'TerminalGridIntegrated.update.exe'
 $backup = Join-Path $release ('TerminalGridIntegrated.previous-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.exe')
 $replaced = $false
+$nanReplaced = $false
+$nanTarget = Join-Path $root 'TerminalGridNan.exe'
+$nanBackup = Join-Path $release ('TerminalGridNan.previous-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.exe')
 $newProcess = $null
 
 try {
@@ -38,6 +41,10 @@ try {
         Copy-Item -LiteralPath $userLayout -Destination $layoutBackup
         Write-Host "設定與自建指令備份：$layoutBackup"
     }
+    $nanStage = Join-Path $release 'TerminalGridNan.exe'
+    if (Test-Path -LiteralPath $nanTarget -PathType Leaf) { [IO.File]::Replace($nanStage, $nanTarget, $nanBackup) }
+    else { [IO.File]::Move($nanStage, $nanTarget) }
+    $nanReplaced = $true
     if (Test-Path -LiteralPath $target -PathType Leaf) {
         [System.IO.File]::Replace($stage, $target, $backup)
     } else {
@@ -60,5 +67,6 @@ catch {
         Copy-Item -LiteralPath $backup -Destination $target -Force
         Write-Warning '已還原先前版本。'
     }
+    if ($nanReplaced -and (Test-Path -LiteralPath $nanBackup -PathType Leaf)) { Copy-Item -LiteralPath $nanBackup -Destination $nanTarget -Force }
     throw
 }

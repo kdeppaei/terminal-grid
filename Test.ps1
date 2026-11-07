@@ -21,11 +21,12 @@ function Invoke-CheckedNative {
 }
 
 function Build-Test {
-    param([string]$Name, [string[]]$Sources, [string[]]$References)
+    param([string]$Name, [string[]]$Sources, [string[]]$References, [string]$EntryPoint)
     $testBinary = Join-Path $testWork ($Name + '.exe')
     $compilerArguments = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/codepage:65001', "/out:$testBinary")
     $compilerArguments += @($References | ForEach-Object { '/r:' + $_ })
     $compilerArguments += $Sources
+    if ($EntryPoint) { $compilerArguments += '/main:' + $EntryPoint }
     Invoke-CheckedNative -Executable $testCompiler -Arguments $compilerArguments | Out-Host
     return $testBinary
 }
@@ -46,6 +47,13 @@ try {
     Invoke-CheckedNative -Executable $configTest -Arguments @($exampleFiles[0].FullName)
     $targetTest = Build-Test -Name 'TargetDiscoveryTests' -Sources @('source\Config.cs', 'source\TargetDiscovery.cs', 'tests\TargetDiscoveryTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
     Invoke-CheckedNative -Executable $targetTest -Arguments @()
+    New-Item -ItemType Directory -Path (Join-Path $testWork 'nan-tools') -Force | Out-Null
+    $nanFake = Build-Test -Name 'nan-tools\adb' -Sources @('tests\NanFakeAdb.cs') -References @('System.dll')
+    $nanSources = @('source\Config.cs', 'source\nan\NanRunner.cs')
+    $nanRefs = @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
+    $nanRunner = Build-Test -Name 'NanRunner' -Sources $nanSources -References $nanRefs
+    $nanTest = Build-Test -Name 'NanRunnerTests' -Sources ($nanSources + 'tests\NanRunnerTests.cs') -References $nanRefs -EntryPoint 'NanRunnerTests'
+    Invoke-CheckedNative -Executable $nanTest -Arguments @($nanRunner, (Split-Path $nanFake))
 
     if (-not $ConfigOnly) {
         $folderTest = Build-Test -Name 'FolderStartupTests' -Sources @('source\Config.cs', 'source\FolderPicker.cs', 'source\PtySession.cs', 'tests\FolderStartupTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll', 'System.Windows.Forms.dll', 'System.Drawing.dll')

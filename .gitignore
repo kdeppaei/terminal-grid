@@ -1,5 +1,6 @@
 # Built application and release artifacts
 TerminalGridIntegrated.exe
+TerminalGridNan.exe
 .release/
 .test-work/
 *.pdb

@@ -253,6 +253,10 @@ namespace TerminalGridIntegrated
         {
             if (String.IsNullOrWhiteSpace(name)) return null;
             name = Environment.ExpandEnvironmentVariables(name.Trim().Trim('"'));
+            if (String.Equals(name, "TerminalGridNan.exe", StringComparison.OrdinalIgnoreCase)) {
+                string bundled = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TerminalGridNan.exe");
+                return File.Exists(bundled) ? bundled : null;
+            }
             if (Path.IsPathRooted(name)) return File.Exists(name) && String.Equals(Path.GetExtension(name), ".exe", StringComparison.OrdinalIgnoreCase) ? Path.GetFullPath(name) : null;
             List<string> directories = new List<string>();
             directories.Add(Environment.SystemDirectory);

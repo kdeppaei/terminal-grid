@@ -72,7 +72,7 @@ async function main() {
     }
     const right = () => mount.click({ button: 'right', position: { x: 80, y: 70 } });
     await raw.focus(); await page.locator('#commandButton').click();
-    assert.equal(await page.locator('#commandPackSelect option').count(), 11);
+    assert.equal(await page.locator('#commandPackSelect option').count(), await page.evaluate(() => window.TerminalGridDefaults.packs.length + 1));
     assert.equal(await page.locator('#renamePackButton').isDisabled(), true);
     await page.locator('#commandList .command-item').filter({ hasText: '安裝 APK（選檔）' }).getByRole('button', { name: '插入', exact: true }).click();
     await page.locator('#pathCommandDialog').waitFor({ state: 'visible' });
@@ -90,7 +90,7 @@ async function main() {
     assert.deepEqual(await inputs(), []);
     await page.locator('#duplicatePackButton').click();
     assert.equal(await page.locator('#renamePackButton').isEnabled(), true);
-    assert.equal(await page.locator('#commandPackSelect option').count(), 12);
+    assert.equal(await page.locator('#commandPackSelect option').count(), await page.evaluate(() => window.TerminalGridDefaults.packs.length + 2));
     await page.locator('#commandDialog [data-close]').first().click();
     pass('push supports file or folder selection; cancellation sends nothing; built-in copy remains editable');
     await page.locator('#commandButton').click();
@@ -260,6 +260,41 @@ async function main() {
     assert.equal(await page.locator('#rightClickMode').inputValue(), 'menu');
     assert.equal(await page.locator('#showLineEditors').isChecked(), false);
     pass('right-click preference survives app page reload');
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.evaluate(() => window.fixture.emit({ type: 'init', config: null }));
+    await page.locator('#flowButton').click(); await page.locator('#nanWorkflowButton').click();
+    let nanRequest = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').pop());
+    assert.ok(nanRequest, 'discovery works before focusing a terminal');
+    await emit({ type: 'commandTargets', requestId: nanRequest.requestId, candidates: [{ kind: 'device', value: 'DUT_ONE', label: 'Samsung 1' }, { kind: 'device', value: 'DUT_TWO', label: 'Samsung 2' }] });
+    assert.equal(await page.locator('#nanDevices option').count(), 2);
+    await page.locator('#nanDut1').fill('DUT_ONE'); await page.locator('#nanDut2').fill('DUT_ONE');
+    await page.locator('#nanForm button[type="submit"]').click();
+    assert.equal(await page.locator('#nanDialog').isVisible(), true);
+    await page.locator('#nanDut2').fill('DUT_TWO'); await page.locator('#nanIf1').fill('aware_data1');
+    await page.screenshot({ path: path.join(results, 'nan-wizard.png') });
+    await reset(); await page.locator('#nanForm button[type="submit"]').click();
+    assert.equal(await page.locator('.terminal-grid:visible .pane:visible').count(), 6);
+    assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
+    await page.locator('#saveFlowFileButton').click();
+    const nanFile = await page.evaluate(() => JSON.parse(window.fixture.messages.filter(m => m.type === 'flowSave').pop().text));
+    assert.equal(nanFile.workspace.slots[5].tabs.length, 2);
+    assert.match(nanFile.workspace.slots[3].tabs[0].args, /--if1 "aware_data1" --if2 "aware_data0"/);
+    assert.equal(nanFile.steps.filter(s => s.action === 'pause').length, 2);
+    assert.deepEqual(nanFile.steps.slice(0, 3).map(s => s.action), ['stop', 'stop', 'stop']);
+    await page.evaluate(() => {
+      const f = window.fixture, original = window.chrome.webview.postMessage;
+      window.chrome.webview.postMessage = m => { original(m); if (m.type === 'start') setTimeout(() => f.emit({ type: 'started', workspaceId: m.workspaceId, slot: m.slot, tabId: m.tabId, generation: 1, pid: 9000 + m.slot }), 10); };
+    });
+    await reset(); await page.locator('#runFlowButton').click();
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start')), false);
+    await page.locator('#confirmAccept').click(); await page.locator('#flowPauseDialog').waitFor({ state: 'visible' });
+    assert.deepEqual(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start').map(m => m.slot)), [0, 1]);
+    await page.locator('#continuePausedFlowButton').click();
+    await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('server 正常監聽'));
+    assert.deepEqual(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start').map(m => m.slot)), [0, 1, 3, 2]);
+    await page.locator('#continuePausedFlowButton').click();
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'start' && m.slot === 4));
+    pass('NAN wizard creates exportable six-cell workflow; manual NDP/server pauses gate ping and traffic with correct DUT mapping');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

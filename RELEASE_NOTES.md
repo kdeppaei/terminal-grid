@@ -1,4 +1,14 @@
-# Terminal Grid 3.7.2
+# Terminal Grid 3.8.0
+
+- 自動化／更多新增「NAN／NDP 雙手機」：選兩台手機，建立可保存與匯出 .tgridflow 的六格工作區，兩個 scrcpy、Server、Ping、Traffic 與雙手機 ADB Shell 分頁。
+- 人工完成 APK 的 NAN／NDP 後按繼續，即時讀取 DUT1 指定介面 IPv6，立刻在 DUT2 執行 ping6。DUT1 查詢介面與 DUT2 scope 分開，預設 aware_data0。再人工確認 Ping 回覆及 server 監聽後開始流量。
+- iperf3／iperf 2、手機端工具路徑、Port、傳輸量可設定，預設 -f m -n 1300M。另有 Quick Share 手動傳檔＋Ping 模式。
+- 新增 Default · NAN／NDP 指令包，總計 11 分類、89 指令。保留個人設定，更新腳本同時更新附帶的 TerminalGridNan.exe。
+- Android IPv6 使用手機的 %aware_data0，並非 Windows %數字索引。每次啟動 Ping／Traffic 重新查詢，位址缺失／模糊時停止；重新執行流程先停止該工作區舊 Ping／Server／Traffic。
+
+驗證：原生 ADB 替身程序、IPv6 解析、流程產生與真實 Edge UI 測試；未連接 Samsung 實機，NDP 保持、實際吞吐與 Quick Share 路徑仍需實機驗收。Ping／Server 在流程結束後保留，使用者可 Ctrl+C 或停止該格。
+
+## 3.7.2
 
 3.7.2 強化 Ping／Ping -6 的本機候選選擇：IPv4 可直接選偵測到的本機／ADB IP；IPv6 link-local 會自動補 Windows 所需的數字介面 scope（例如 `%12`），下拉標籤顯示對應 WLAN／LAN 名稱。保留手動輸入與既有設定。
 

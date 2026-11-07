@@ -30,6 +30,9 @@ jobs:
       - name: Test bundled SQA command templates
         shell: pwsh
         run: node ./tests/DefaultCommandsTests.js
+      - name: Test NAN workflow generation
+        shell: pwsh
+        run: node ./tests/NanWorkflowTests.js
       - name: Package Windows release
         shell: pwsh
         run: ./Package.ps1 -SkipBuild

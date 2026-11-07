@@ -71,10 +71,11 @@ namespace TerminalGridIntegrated
                     }
                 }
             } catch (Exception) { result.message = "部分網卡資訊無法讀取。"; }
-            string adb = ShellBuilder.FindExecutable("adb.exe");
-            if (adb == null && !String.IsNullOrWhiteSpace(cwd)) {
+            string adb = null;
+            if (!String.IsNullOrWhiteSpace(cwd)) {
                 try { string file = Path.Combine(cwd, "adb.exe"); if (File.Exists(file)) adb = Path.GetFullPath(file); } catch (ArgumentException) { }
             }
+            if (adb == null) adb = ShellBuilder.FindExecutable("adb.exe");
             if (adb == null) { result.message += " 找不到 adb.exe；請安裝 Platform Tools，加入 PATH 或放在終端啟動資料夾。"; return result; }
             try {
                 using (var process = new Process { StartInfo = new ProcessStartInfo(adb, "devices -l") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } }) {

@@ -29,6 +29,10 @@
 
 ## 下載與使用
 
+3.8 新增「自動化 → NAN／NDP 雙手機」：設定 DUT1／DUT2 後建立六格工作區與可修改、匯出的流程。開啟兩台 scrcpy → 等待 APK 建立 NAN／NDP → 按繼續即時查 DUT1 Aware IPv6 並在 DUT2 持續 ping6 → 確認 server／ping 後送 iperf3 或 iperf 2 流量。預設 `-f m -n 1300M`，可改手機工具路徑、Port、兩端介面與傳輸量；Quick Share 模式由使用者手動傳檔。11 個 Default 分類共 89 指令包含 NAN 專用包。
+
+NAN 功能隨 GUI 附帶 `TerminalGridNan.exe`，需保留在主程式旁。它在指定手機查介面，使用 DUT2 的 `%aware_data0` 等 Android scope，透過獨立終端前景程序顯示 Ping／Server／Traffic。啟動時重新取 IP，無固定舊 IP；無位址或多個候選則顯示原因。ADB、scrcpy 與手機 iperf 仍需先安裝。實機 NAN／Quick Share 行為需依手機、APK 與韌體驗收。
+
 3.7.2 插入 Ping／Ping -6 範本時可選擇自動偵測的 ADB 裝置與 IP：ADB 已授權在線裝置、本機啟用中的網卡、ADB TCP/IP 裝置位址及暫存區 IP，並保留手動輸入／重新偵測。IPv6 link-local 會自動補 Windows 數字介面 scope（例如 `%12`），選單同時顯示 WLAN／LAN 名稱。`-B` 本機綁定位址獨立選擇。本機網卡不代表遠端 server 可達，USB 裝置的網路 IP 需先查詢並暫存或手動輸入。偵測只列舉網卡與 `adb devices -l`，不掃描網段。
 
 舊指令中的 `DEVICE_SERIAL`、`SERVER_IP`、`LOCAL_IP`、`DEVICE_IP` 及內建示例 `192.0.2.10`／`192.0.2.20`／`2001:db8::10` 會在插入時轉成參數選擇；其他已填妥的固定 IP 保留。自動化的「輸入指令」步驟會先選參數，再顯示實際指令確認，範本不會被實值覆寫。

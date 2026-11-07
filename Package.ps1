@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '3.7.2',
+    [string]$Version = '3.8.0',
     [switch]$SkipBuild,
     [string]$ApplicationPath = (Join-Path $PSScriptRoot 'TerminalGridIntegrated.exe')
 )
@@ -22,6 +22,7 @@ foreach ($item in $payloadItems) {
     Copy-Item -LiteralPath $sourceItem -Destination $payloadFolder -Recurse
 }
 Copy-Item -LiteralPath $applicationFile -Destination (Join-Path $payloadFolder 'TerminalGridIntegrated.exe')
+Copy-Item -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName($applicationFile)) 'TerminalGridNan.exe') -Destination $payloadFolder
 $packageName = "TerminalGrid-Windows-x64-v$Version.zip"
 $packagePath = Join-Path $releaseFolder $packageName
 Compress-Archive -LiteralPath $payloadFolder -DestinationPath $packagePath -Force
