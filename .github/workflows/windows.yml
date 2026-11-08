@@ -36,6 +36,12 @@ jobs:
       - name: Package Windows release
         shell: pwsh
         run: ./Package.ps1 -SkipBuild
+      - name: Check versioned in-app help
+        shell: pwsh
+        run: node ./tests/ReleaseHelpTests.js
+      - name: Test package update and data preservation
+        shell: pwsh
+        run: ./tests/UpdatePackageTests.ps1 -Package (Get-ChildItem .release/*.zip | Select-Object -First 1).FullName
       - name: Upload ZIP and SHA-256
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

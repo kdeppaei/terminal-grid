@@ -59,6 +59,8 @@ try {
     Invoke-CheckedNative -Executable $filesTest -Arguments @($filesFake, $testWork)
 
     if (-not $ConfigOnly) {
+        $batchTest = Build-Test -Name 'BatchRunTests' -Sources @('source\Config.cs', 'source\PtySession.cs', 'tests\BatchRunTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
+        Invoke-CheckedNative -Executable $batchTest -Arguments @($testResults)
         $folderTest = Build-Test -Name 'FolderStartupTests' -Sources @('source\Config.cs', 'source\FolderPicker.cs', 'source\PtySession.cs', 'tests\FolderStartupTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll', 'System.Windows.Forms.dll', 'System.Drawing.dll')
         Invoke-CheckedNative -Executable $folderTest -Arguments @($testResults)
         $nativeTest = Build-Test -Name 'PtySelfTest' -Sources @('source\PtySession.cs', 'tests\PtySelfTest.cs') -References @('System.dll', 'System.Core.dll')

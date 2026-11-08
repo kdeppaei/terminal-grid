@@ -47,7 +47,7 @@ namespace TerminalGridIntegrated
         public int ProcessId { get { return processId; } }
         public bool IsRunning { get { return running && !disposed; } }
 
-        public void Start(string exe, string args, string cwd, int cols, int rows)
+        public void Start(string exe, string args, string cwd, int cols, int rows, IDictionary<string, string> environmentOverrides = null)
         {
             if (String.IsNullOrWhiteSpace(exe)) throw new ArgumentException("Shell executable is required.", "exe");
             ValidateSize(cols, rows);
@@ -62,6 +62,7 @@ namespace TerminalGridIntegrated
                 IntPtr inputReadSide = IntPtr.Zero;
                 IntPtr outputWriteSide = IntPtr.Zero;
                 IntPtr attributeList = IntPtr.Zero;
+                IntPtr environmentBlock = IntPtr.Zero;
                 bool attributesInitialized = false;
                 PROCESS_INFORMATION process = new PROCESS_INFORMATION();
                 try
@@ -109,11 +110,23 @@ namespace TerminalGridIntegrated
                     startup.StartupInfo.dwFlags = 0x00000100; // STARTF_USESTDHANDLES
                     startup.lpAttributeList = attributeList;
                     StringBuilder commandLine = new StringBuilder(QuoteArgument(exe) + (String.IsNullOrWhiteSpace(args) ? "" : " " + args));
+                    if (environmentOverrides != null)
+                    {
+                        var variables = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables()) variables[(string)entry.Key] = (string)entry.Value;
+                        foreach (var entry in environmentOverrides) {
+                            if (String.IsNullOrEmpty(entry.Key) || entry.Key.IndexOfAny(new[] { '=', '\0' }) >= 0 || entry.Value == null || entry.Value.IndexOf('\0') >= 0) throw new ArgumentException("Invalid child environment variable.");
+                            variables[entry.Key] = entry.Value;
+                        }
+                        var block = new StringBuilder();
+                        foreach (var entry in variables) block.Append(entry.Key).Append('=').Append(entry.Value).Append('\0');
+                        block.Append('\0'); environmentBlock = Marshal.StringToHGlobalUni(block.ToString());
+                    }
                     // Do not use CREATE_NEW_CONSOLE / CREATE_NO_WINDOW: ConPTY
                     // provides the console. Suspension closes the child-spawn
                     // race before assigning this session's private job.
                     if (!CreateProcess(exe, commandLine, IntPtr.Zero, IntPtr.Zero, false,
-                        0x00080000 | 0x00000004 | 0x00000400, IntPtr.Zero,
+                        0x00080000 | 0x00000004 | 0x00000400, environmentBlock,
                         String.IsNullOrWhiteSpace(cwd) ? null : cwd, ref startup, out process))
                         ThrowLastError("Start shell");
                     processHandle = process.hProcess;
@@ -145,6 +158,7 @@ namespace TerminalGridIntegrated
                 }
                 finally
                 {
+                    if (environmentBlock != IntPtr.Zero) Marshal.FreeHGlobal(environmentBlock);
                     Close(ref inputReadSide);
                     Close(ref outputWriteSide);
                     Close(ref process.hThread);

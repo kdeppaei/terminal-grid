@@ -9,6 +9,7 @@ namespace TerminalGridIntegrated
 {
     public sealed class TerminalTabConfig
     {
+        public string batchFile { get; set; }
         public string id { get; set; }
         public string name { get; set; }
         public string shell { get; set; }
@@ -20,6 +21,7 @@ namespace TerminalGridIntegrated
     }
     public sealed class PaneConfig
     {
+        public string batchFile { get; set; }
         public string name { get; set; }
         public string shell { get; set; }
         public string command { get; set; }
@@ -52,16 +54,16 @@ namespace TerminalGridIntegrated
                 PaneConfig pane = config.slots[i] ?? new PaneConfig();
                 pane.name = String.IsNullOrWhiteSpace(pane.name) ? "終端 " + (i + 1) : Limit(pane.name, 80);
                 if (!new[] { "CMD", "PowerShell", "PowerShell 7", "Custom" }.Contains(pane.shell)) pane.shell = "PowerShell";
-                pane.command = Limit(pane.command, 16000); pane.cwd = Limit(pane.cwd, 4096); pane.exe = Limit(pane.exe, 4096); pane.args = Limit(pane.args, 16000);
+                pane.command = Limit(pane.command, 16000); pane.cwd = Limit(pane.cwd, 4096); pane.exe = Limit(pane.exe, 4096); pane.args = Limit(pane.args, 16000); pane.batchFile = Limit(pane.batchFile, 4096);
                 if (pane.tabs == null || pane.tabs.Count == 0)
-                    pane.tabs = new List<TerminalTabConfig> { new TerminalTabConfig { id = "tab-1", name = "終端 1", shell = pane.shell, command = pane.command, cwd = pane.cwd, exe = pane.exe, args = pane.args } };
+                    pane.tabs = new List<TerminalTabConfig> { new TerminalTabConfig { id = "tab-1", name = "終端 1", shell = pane.shell, command = pane.command, cwd = pane.cwd, exe = pane.exe, args = pane.args, batchFile = pane.batchFile } };
                 pane.tabs = pane.tabs.Take(8).Select((tab, tabIndex) => NormalizeTab(tab, tabIndex, pane)).ToList();
                 HashSet<string> tabIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (TerminalTabConfig tab in pane.tabs)
                     if (!tabIds.Add(tab.id)) { tab.id = "tab-" + Guid.NewGuid().ToString("N").Substring(0, 12); tabIds.Add(tab.id); }
                 if (!pane.tabs.Any(tab => tab.id == pane.activeTabId)) pane.activeTabId = pane.tabs[0].id;
                 TerminalTabConfig activeTab = pane.tabs.First(tab => tab.id == pane.activeTabId);
-                pane.shell = activeTab.shell; pane.command = activeTab.command; pane.cwd = activeTab.cwd; pane.exe = activeTab.exe; pane.args = activeTab.args;
+                pane.shell = activeTab.shell; pane.command = activeTab.command; pane.cwd = activeTab.cwd; pane.exe = activeTab.exe; pane.args = activeTab.args; pane.batchFile = activeTab.batchFile;
                 config.slots[i] = pane;
             }
             return config;
@@ -73,7 +75,7 @@ namespace TerminalGridIntegrated
             if (String.IsNullOrWhiteSpace(tab.id) || tab.id.Any(c => !Char.IsLetterOrDigit(c) && c != '-' && c != '_')) tab.id = "tab-" + (index + 1);
             tab.name = String.IsNullOrWhiteSpace(tab.name) ? "終端 " + (index + 1) : Limit(tab.name.Trim(), 48);
             if (!new[] { "CMD", "PowerShell", "PowerShell 7", "Custom" }.Contains(tab.shell)) tab.shell = legacy.shell;
-            tab.command = Limit(tab.command, 16000); tab.cwd = Limit(tab.cwd, 4096); tab.exe = Limit(tab.exe, 4096); tab.args = Limit(tab.args, 16000);
+            tab.command = Limit(tab.command, 16000); tab.cwd = Limit(tab.cwd, 4096); tab.exe = Limit(tab.exe, 4096); tab.args = Limit(tab.args, 16000); tab.batchFile = Limit(tab.batchFile, 4096);
             return tab;
         }
         static string Limit(string value, int maximum) { value = value ?? ""; return value.Length > maximum ? value.Substring(0, maximum) : value; }
@@ -246,6 +248,7 @@ namespace TerminalGridIntegrated
     public sealed class ShellCommand
     {
         public string Executable, Arguments, Directory, TemporaryScript;
+        public IDictionary<string, string> EnvironmentOverrides;
     }
     public static class ShellBuilder
     {
@@ -280,6 +283,16 @@ namespace TerminalGridIntegrated
         public static ShellCommand Build(PaneConfig pane)
         {
             ShellCommand result = new ShellCommand();
+            if (!String.IsNullOrWhiteSpace(pane.batchFile))
+            {
+                if (pane.shell != "CMD") throw new ArgumentException("BAT 分頁需使用 CMD；若要改用其他 Shell，請先清除 BAT 路徑。");
+                string batch = ValidateBatchFile(pane.batchFile);
+                result.Executable = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+                result.Directory = Path.GetDirectoryName(batch);
+                result.Arguments = "/D /V:OFF /S /K \"\"%TERMINALGRID_BATCH_FILE%\"\"";
+                result.EnvironmentOverrides = new Dictionary<string, string> { { "TERMINALGRID_BATCH_FILE", batch } };
+                return result;
+            }
             string selectedDirectory = pane.cwd ?? "";
             // A folder selected from Windows may literally contain %NAME%.
             // Prefer the existing path before expanding manually typed environment variables.
@@ -324,6 +337,15 @@ namespace TerminalGridIntegrated
                 result.Append('\\', slashes); slashes = 0; result.Append(c);
             }
             result.Append('\\', slashes * 2); result.Append('"'); return result.ToString();
+        }
+        public static string ValidateBatchFile(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path) || path.Length > 4096 || path.Any(Char.IsControl) || !Path.IsPathRooted(path)) throw new ArgumentException("請選擇本機 BAT／CMD 完整路徑。");
+            string full = Path.GetFullPath(path), extension = Path.GetExtension(full);
+            if (full.StartsWith(@"\\")) throw new ArgumentException("BAT 目前使用本機磁碟工作目錄，請先將網路分享的檔案複製到本機。");
+            if (!String.Equals(extension, ".bat", StringComparison.OrdinalIgnoreCase) && !String.Equals(extension, ".cmd", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("只接受 .bat 或 .cmd 批次檔。");
+            if (!File.Exists(full)) throw new FileNotFoundException("找不到批次檔，請重新選檔或拖入。", full);
+            return full;
         }
         public static void Clean(ShellCommand command)
         {

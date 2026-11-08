@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.9.1.0")]
+[assembly: System.Reflection.AssemblyVersion("3.10.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -162,7 +162,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.9.1", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.10.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -191,6 +191,33 @@ namespace TerminalGridIntegrated
                     return;
                 }
                 if (type == "import") { Ui(ImportConfig); return; }
+                if (type == "batchOpen" || type == "batchDrop")
+                {
+                    string requestId = StringValue(message, "requestId");
+                    if (requestId.Length == 0 || requestId.Length > 128) return;
+                    if (type == "batchOpen") Ui(delegate {
+                        if (folderPickerOpen) { Send(new { type = "batchFiles", requestId = requestId, error = "請先完成目前的檔案選擇。" }); return; }
+                        folderPickerOpen = true;
+                        try {
+                            using (var dialog = new OpenFileDialog { Title = "選擇 BAT／CMD 並執行", Filter = "Windows 批次檔 (*.bat;*.cmd)|*.bat;*.cmd", Multiselect = true, CheckFileExists = true }) {
+                                if (dialog.ShowDialog(this) == DialogResult.OK) SendBatchFiles(requestId, dialog.FileNames);
+                                else Send(new { type = "batchFiles", requestId = requestId, cancelled = true });
+                            }
+                        } catch (Exception ex) { Send(new { type = "batchFiles", requestId = requestId, error = ex.Message }); }
+                        finally { folderPickerOpen = false; }
+                    });
+                    else {
+                        try {
+                            var objects = e.AdditionalObjects;
+                            if (objects == null || objects.Count == 0 || objects.Count > 8) throw new ArgumentException("每次請拖入 1–8 個 BAT／CMD 檔案。");
+                            // Only native File objects supplied by WebView2 carry
+                            // the actual dropped path; never trust a JS filename.
+                            var paths = objects.Select(item => { var file = item as CoreWebView2File; if (file == null) throw new ArgumentException("無法取得本機檔案路徑，請改用選檔執行。"); return file.Path; }).ToArray();
+                            SendBatchFiles(requestId, paths);
+                        } catch (Exception ex) { Send(new { type = "batchFiles", requestId = requestId, error = ex.Message }); }
+                    }
+                    return;
+                }
                 if (type == "deviceFilesOpen") { Ui(delegate { if (deviceFiles == null || deviceFiles.IsDisposed) deviceFiles = new DeviceFilesForm(); if (!deviceFiles.Visible) deviceFiles.Show(this); deviceFiles.Activate(); }); return; }
                 if (type == "flowOpen") { Ui(OpenFlow); return; }
                 if (type == "flowSave") { Ui(delegate { SaveFlow(StringValue(message, "text")); }); return; }
@@ -230,7 +257,7 @@ namespace TerminalGridIntegrated
                 {
                     object value; if (!message.TryGetValue("config", out value)) return;
                     TerminalTabConfig tabConfig = serializer.Deserialize<TerminalTabConfig>(serializer.Serialize(value));
-                    PaneConfig paneConfig = new PaneConfig { name = tabConfig.name, shell = tabConfig.shell, command = tabConfig.command, cwd = tabConfig.cwd, exe = tabConfig.exe, args = tabConfig.args };
+                    PaneConfig paneConfig = new PaneConfig { name = tabConfig.name, shell = tabConfig.shell, command = tabConfig.command, cwd = tabConfig.cwd, exe = tabConfig.exe, args = tabConfig.args, batchFile = tabConfig.batchFile };
                     var temp = LayoutConfig.Normalize(new LayoutConfig { slots = new List<PaneConfig> { paneConfig } }); paneConfig = temp.slots[0];
                     int cols = Clamp(IntValue(message, "cols", 80), 2, 500), rows = Clamp(IntValue(message, "rows", 24), 1, 300);
                     if (type == "restart") RestartSlot(workspaceId, index, tabId, paneConfig, cols, rows); else StartSlot(workspaceId, index, tabId, paneConfig, cols, rows);
@@ -255,6 +282,13 @@ namespace TerminalGridIntegrated
             catch (Exception ex) { Status("操作未完成：" + ex.Message); }
         }
         bool targetDiscoveryBusy;
+        void SendBatchFiles(string requestId, string[] paths)
+        {
+            if (paths == null || paths.Length == 0 || paths.Length > 8) throw new ArgumentException("每次最多執行 8 個批次檔。");
+            var files = paths.Select(ShellBuilder.ValidateBatchFile).Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(path => new { path = path, name = Path.GetFileName(path), directory = Path.GetDirectoryName(path) }).ToArray();
+            Send(new { type = "batchFiles", requestId = requestId, files = files });
+        }
         void QueueFolderPicker(string workspaceId, int slot, string tabId, string requestId, string initialPath)
         {
             if (String.IsNullOrEmpty(requestId) || requestId.Length > 128)
@@ -321,13 +355,13 @@ namespace TerminalGridIntegrated
                     {
                         TerminalTabConfig tab = cell.tabs[tabIndex];
                         tab.name = paneConfig.name; tab.shell = paneConfig.shell; tab.command = paneConfig.command;
-                        tab.cwd = paneConfig.cwd; tab.exe = paneConfig.exe; tab.args = paneConfig.args;
+                        tab.cwd = paneConfig.cwd; tab.exe = paneConfig.exe; tab.args = paneConfig.args; tab.batchFile = paneConfig.batchFile;
                         cell.activeTabId = tabId;
                     }
                     ConfigStore.Write(ConfigStore.DefaultPath, config);
                 }
                 ShellCommand command = ShellBuilder.Build(paneConfig); pane.Command = command;
-                await Task.Run(delegate { session.Start(command.Executable, command.Arguments, command.Directory, cols, rows); });
+                await Task.Run(delegate { session.Start(command.Executable, command.Arguments, command.Directory, cols, rows, command.EnvironmentOverrides); });
                 if (closing) { await Task.Run((Action)session.Dispose); ShellBuilder.Clean(command); return; }
                 if (pane.Generation != generation) return;
                 pane.Starting = false;

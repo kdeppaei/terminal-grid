@@ -3,6 +3,8 @@ TerminalGridIntegrated.exe
 TerminalGridNan.exe
 .release/
 .test-work/
+.updates/
+package-files.json
 *.pdb
 *.zip
 *.tmp

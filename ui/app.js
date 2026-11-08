@@ -12,6 +12,7 @@
   var commandDraft = null, draftTarget = null, focusedEditor = null;
   var rightClickMode = 'quick';
   var nanDiscoveryId = null, nanPathId = null;
+  var batchRequests = {};
   function discoverNanDevices() {
     if (!hostReady || !activeView) return;
     var state = focused ? focused.state : activeState(activeView, 0);
@@ -93,7 +94,7 @@
     tab.name = str(raw.name, 48).trim() || '終端 ' + String(index + 1);
     tab.shell = SHELLS.indexOf(raw.shell) >= 0 ? raw.shell : 'CMD';
     tab.command = str(raw.command, 16000); tab.cwd = str(raw.cwd, 4096);
-    tab.exe = str(raw.exe, 4096); tab.args = str(raw.args, 16000);
+    tab.exe = str(raw.exe, 4096); tab.args = str(raw.args, 16000); tab.batchFile = str(raw.batchFile, 4096);
     return tab;
   }
   function normalizeWorkspace(raw, index) {
@@ -572,6 +573,7 @@
     });
     element.querySelector('.pane-shell').addEventListener('change', function (event) {
       var state = activeState(view, index), tab = getTabConfig(view.config, index, state.tabId);
+      if (tab.batchFile && event.target.value !== 'CMD') { event.target.value = 'CMD'; showToast('此分頁使用 BAT。請在終端設定清除 BAT 路徑後，再切換 Shell。'); return; }
       tab.shell = event.target.value; renderPane(view, index); queueSave();
       if (tab.shell === 'Custom' && !tab.exe.trim()) openSettings(view, index, state.tabId);
     });
@@ -699,7 +701,7 @@
     element.querySelector('.pane-state').title = stateLabel(state);
     element.querySelector('[data-action="stop"]').disabled = !hostReady || state.status !== 'running';
     element.querySelector('[data-action="restart"]').disabled = !hostReady || isBusy(state);
-    element.querySelector('[data-action="folder"]').disabled = !hostReady || isBusy(state) || pendingFolderRequest !== null;
+    element.querySelector('[data-action="folder"]').disabled = !hostReady || isBusy(state) || pendingFolderRequest !== null || !!tab.batchFile;
     element.querySelector('[data-action="folder"]').title = isActive(state) ? '選擇下次啟動資料夾，不中斷目前測試' : '選擇資料夾並啟動此終端';
     element.querySelector('.pane-folder-path').textContent = tab.cwd || '工作目錄：預設';
     element.querySelector('.pane-folder-path').title = tab.cwd || '使用預設工作目錄';
@@ -718,7 +720,8 @@
     cell.tabs.forEach(function (child) {
       var selected = child.tabId === cell.config.activeTabId;
       child.layer.hidden = !selected; child.layer.querySelector('.empty-name').textContent = child.status === 'starting' ? '正在建立終端…' : child.status === 'error' ? '請檢查設定後重試' : '準備開始新的測試';
-      child.layer.querySelector('.empty-command').textContent = child.status === 'error' ? '啟動失敗' : (getTabConfig(view.config, slot, child.tabId).command || getTabConfig(view.config, slot, child.tabId).shell + ' · 可直接輸入指令');
+      var childConfig = getTabConfig(view.config, slot, child.tabId);
+      child.layer.querySelector('.empty-command').textContent = child.status === 'error' ? '啟動失敗' : (childConfig.batchFile ? 'BAT · ' + childConfig.batchFile : childConfig.command || childConfig.shell + ' · 可直接輸入指令');
       child.layer.querySelector('.pane-empty').hidden = child.hasOutput || child.status === 'running' || child.status === 'stopping';
       var exit = child.layer.querySelector('.exit-notice'); exit.hidden = child.status !== 'exited' || !child.hasOutput;
       exit.textContent = '已結束 · 結束碼 ' + (child.exitCode === null ? '—' : child.exitCode) + ' · 輸出已保留';
@@ -863,7 +866,7 @@
   }
   function refreshFolderControls() {
     views.forEach(function (view) { view.panes.forEach(function (_, slot) { renderPane(view, slot); }); });
-    $('settingBrowse').disabled = !hostReady || pendingFolderRequest !== null;
+    $('settingBrowse').disabled = !hostReady || pendingFolderRequest !== null || !!$('settingBatchFile').value;
   }
   function handleFolderResult(message) {
     var request = pendingFolderRequest;
@@ -892,13 +895,16 @@
     $('settingsTitle').textContent = '第 ' + String(slot + 1).padStart(2, '0') + ' 格 · ' + setting.name;
     $('settingName').value = setting.name; $('settingShell').value = setting.shell; $('settingCwd').value = setting.cwd;
     $('settingExe').value = setting.exe; $('settingArgs').value = setting.args; $('settingCommand').value = setting.command;
+    $('settingBatchFile').value = setting.batchFile || '';
     $('settingShell').querySelector('option[value="PowerShell 7"]').disabled = !capabilities.pwsh && setting.shell !== 'PowerShell 7';
     $('settingBrowse').disabled = !hostReady || pendingFolderRequest !== null; updateCustomFields(); $('settingsDialog').showModal();
     $('settingName').focus(); $('settingName').select();
   }
   function updateCustomFields() {
-    var custom = $('settingShell').value === 'Custom'; $('customFields').hidden = !custom; $('settingCommand').disabled = custom;
-    $('commandHint').textContent = custom ? '自訂程式請使用上方的啟動參數。此欄指令不會傳送給自訂程式。' : '儲存設定不會執行指令；修改會在下次啟動生效。';
+    var custom = $('settingShell').value === 'Custom', batch = !!$('settingBatchFile').value;
+    $('customFields').hidden = !custom; $('settingCommand').disabled = custom || batch;
+    $('settingCwd').disabled = batch; $('settingBrowse').disabled = batch || !hostReady || pendingFolderRequest !== null;
+    $('commandHint').textContent = batch ? '此分頁直接執行上方 BAT 原檔，使用原檔所在資料夾；清除 BAT 路徑即可恢復一般啟動指令。' : custom ? '自訂程式請使用上方的啟動參數。此欄指令不會傳送給自訂程式。' : '儲存設定不會執行指令；修改會在下次啟動生效。';
     $('settingExe').setCustomValidity('');
   }
   function askConfirmation(title, message, acceptLabel) {
@@ -966,6 +972,7 @@
   }
   function handleHostMessage(message) {
     if (!message || typeof message !== 'object' || typeof message.type !== 'string') return;
+    if (message.type === 'batchFiles') { handleBatchFiles(message); return; }
     if (message.type === 'commandTargets' && nanDiscoveryId && message.requestId === nanDiscoveryId) {
       nanDiscoveryId = null;
       if (!$('nanDialog').open) return;
@@ -997,7 +1004,7 @@
     }
     if (message.type === 'folderPicked' || message.type === 'folderPickError') { handleFolderResult(message); return; }
     if (message.type === 'init') {
-      invalidateFolderRequests(); destroyViews(); appConfig = normalizeAppConfig(message.config);
+      batchRequests = {}; invalidateFolderRequests(); destroyViews(); appConfig = normalizeAppConfig(message.config);
       capabilities = Object.assign({ pwsh: false }, message.capabilities || {}); hostReady = true;
       appConfig.workspaces.forEach(createView); activateWorkspace(appConfig.activeWorkspaceId);
       $('connectionDot').className = 'connection-dot connected'; $('connectionText').textContent = '終端引擎已就緒';
@@ -1201,6 +1208,7 @@
     var summary = flow.steps.map(function (step, i) {
       var tab = workspace.slots[step.slot].tabs.find(function (t) { return t.id === step.tabId; }) || workspace.slots[step.slot].tabs[0];
       var verb = step.action === 'send' ? ((step.text || '（空指令）') + (step.enter ? '  ↵' : '')) : step.action === 'wait' ? '等待 ' + step.delayMs + ' ms' : step.action === 'pause' ? '等待使用者：' + (step.text || '完成操作後按繼續') : step.action === 'start' ? ('啟動 ' + tab.shell + (tab.exe ? ' · ' + tab.exe + ' ' + tab.args : '') + (tab.cwd ? ' · 目錄 ' + tab.cwd : '') + (tab.command ? '\n啟動指令：' + tab.command : '')) : '結束終端';
+      if (step.action === 'start' && tab.batchFile) verb = '啟動 CMD · BAT 原檔：' + tab.batchFile + '\n（啟動不會等待 BAT 完成）';
       return step.action === 'pause' || step.action === 'wait' ? (i + 1) + '. ' + verb : (i + 1) + '. ' + String(step.slot + 1).padStart(2, '0') + ' 格 / ' + tab.name + ' · ' + verb;
     }).join('\n');
     if (!(await askConfirmation('執行「' + flow.name + '」？', '以下步驟會依序送到本機終端：\n\n' + summary + '\n\n請確認目標與指令正確。', '確認執行'))) return;
@@ -1374,6 +1382,7 @@
     add('開啟資料暫存區…', function () { setCapturePanel(true); });
     if (!isActive(state)) add('啟動終端', function () { startSlot(getView(state.workspaceId), state.slot, state.tabId, false); });
     add('選擇啟動資料夾…', function () { choosePaneFolder(getView(state.workspaceId), state.slot, state.tabId); });
+    add('選檔執行 BAT／CMD…', function () { requestBatch(getView(state.workspaceId), state.slot); });
     add('終端設定…', function () { openSettings(getView(state.workspaceId), state.slot, state.tabId); });
     var separator = document.createElement('div'); separator.className = 'context-separator'; menu.appendChild(separator);
     add('開啟指令庫…', function () { renderCommandLibrary(); $('commandDialog').showModal(); });
@@ -1394,11 +1403,52 @@
     function next() { if (queue.length) importDroppedFile(queue.shift(), next); }
     next();
   }
+  function batchTarget(element) {
+    var pane = element && element.closest && element.closest('.pane'), grid = pane && pane.closest('[data-workspace-id]');
+    if (grid) return { view: getView(grid.dataset.workspaceId), slot: Number(pane.dataset.slot) };
+    if (focused && focused.view === activeView && focused.slot < activeView.config.rows * activeView.config.cols) return { view: activeView, slot: focused.slot };
+    return { view: activeView, slot: 0 };
+  }
+  function requestBatch(view, slot, files) {
+    if (!hostReady || !view) { showToast('請等終端引擎就緒後重試。', true); return; }
+    var capacity = MAX_TABS - view.panes[slot].config.tabs.length;
+    if (capacity < 1 || files && files.length > capacity) { showToast('此格最多 8 個分頁，目前剩 ' + capacity + ' 個位置；請先移除分頁或選另一格。', true); return; }
+    var id = uid('batch'); batchRequests[id] = { view: view, slot: slot };
+    try {
+      if (files) {
+        if (!host.postMessageWithAdditionalObjects) throw new Error('此 WebView2 不支援檔案拖入路徑，請改用「選檔執行 BAT／CMD」。');
+        host.postMessageWithAdditionalObjects({ type: 'batchDrop', requestId: id }, files);
+      } else if (!send({ type: 'batchOpen', requestId: id })) throw new Error('無法開啟檔案選擇器。');
+    } catch (error) { delete batchRequests[id]; showToast(error.message, true); }
+  }
+  function handleBatchFiles(message) {
+    var request = batchRequests[message.requestId]; if (!request) return; delete batchRequests[message.requestId];
+    if (message.cancelled) return;
+    if (message.error) { showToast(message.error, true); return; }
+    var view = request.view, slot = request.slot;
+    if (getView(view.config.id) !== view) { showToast('原目標工作區已變更，請重新拖入批次檔。', true); return; }
+    var files = message.files;
+    if (!Array.isArray(files) || !files.length || files.some(function (f) { return !f || typeof f.path !== 'string' || !/\.(bat|cmd)$/i.test(f.path) || !f.directory; })) { showToast('未取得有效批次檔。', true); return; }
+    var cell = view.panes[slot], running = views.reduce(function (n, v) { return n + v.panes.reduce(function (m, p) { return m + p.tabs.filter(isActive).length; }, 0); }, 0);
+    if (files.length + cell.config.tabs.length > MAX_TABS || running + files.length > 64) { showToast('終端或分頁容量不足，本次批次檔未執行。', true); return; }
+    var previousFocused = focused;
+    var tabs = files.map(function (file) {
+      var tab = defaultTab(cell.config.tabs.length, uid('batch-tab'));
+      tab.name = str(file.name, 48) || 'BAT'; tab.batchFile = file.path; tab.cwd = file.directory;
+      cell.config.tabs.push(tab); makeTerminal(view, slot, tab); return tab;
+    });
+    cell.config.activeTabId = tabs[0].id; saveConfig(false);
+    tabs.forEach(function (tab) { startSlot(view, slot, tab.id, false); });
+    cell.config.activeTabId = tabs[0].id; renderPane(view, slot);
+    if (activeView === view) { markFocused(view, slot, tabs[0].id); getState(view.config.id, slot, tabs[0].id).terminal.focus(); }
+    else if (previousFocused && previousFocused.view === activeView) markFocused(previousFocused.view, previousFocused.slot, previousFocused.tabId);
+    queueSave(); scheduleFit(); showToast('已在第 ' + (slot + 1) + ' 格新增 ' + tabs.length + ' 個 CMD 分頁並執行原檔。');
+  }
   function importDroppedFile(file, done) {
     done = typeof done === 'function' ? done : function () {};
     if (!file) { done(); return; }
     var name = file.name || '';
-    if (!/\.(tgridflow|tgridcmd)$/i.test(name)) { showToast('可拖入 .tgridflow 或 .tgridcmd 檔案。', true); done(); return; }
+    if (!/\.(tgridflow|tgridcmd)$/i.test(name)) { showToast('支援 .bat／.cmd 執行，或 .tgridflow／.tgridcmd 匯入。', true); done(); return; }
     if (file.size > 1024 * 1024) { showToast('檔案超過 1 MB。', true); done(); return; }
     var reader = new FileReader();
     reader.onload = function () { if (/\.tgridflow$/i.test(name)) loadFlowFile(String(reader.result), name); else loadCommandPackFile(String(reader.result), name); done(); };
@@ -1407,6 +1457,12 @@
   }
 
   function initialize() {
+    window.TerminalGridHelp.render($('helpDialog'));
+    var batchButton = document.createElement('button'); batchButton.id = 'runBatchButton'; batchButton.className = 'button'; batchButton.textContent = '選檔執行 BAT／CMD…';
+    batchButton.addEventListener('click', function () { var target = batchTarget(null); requestBatch(target.view, target.slot); });
+    $('appOptions').querySelector('.app-options-menu').appendChild(batchButton);
+    var batchField = document.createElement('label'); batchField.className = 'field'; batchField.innerHTML = 'BAT 原檔路徑（選填）<input id="settingBatchFile" maxlength="4096" spellcheck="false" placeholder="留空使用一般終端；亦可直接拖入 BAT"><span class="field-hint">有路徑時使用 CMD 執行原檔，工作目錄固定為原檔所在資料夾。儲存不會立刻執行。</span>';
+    $('settingCommand').parentNode.before(batchField); $('settingBatchFile').addEventListener('input', updateCustomFields);
     ['options', 'commands'].forEach(function (place) {
       var button = document.createElement('button'); button.type = 'button'; button.className = 'button'; button.id = 'deviceFiles-' + place; button.textContent = '裝置檔案 · cfg／Logs…';
       button.addEventListener('click', function () { if (hostReady) send({ type: 'deviceFilesOpen' }); });
@@ -1526,10 +1582,11 @@
     });
     $('settingsForm').addEventListener('submit', function (event) {
       event.preventDefault(); if (!settingsRef) return;
+      if ($('settingBatchFile').value && $('settingShell').value !== 'CMD') { showToast('BAT 原檔請使用 CMD，或清除 BAT 路徑。', true); return; }
       if ($('settingShell').value === 'Custom' && !$('settingExe').value.trim()) { $('settingExe').setCustomValidity('請輸入要啟動的可執行程式。'); $('settingExe').reportValidity(); return; }
       var ref = settingsRef, tab = getTabConfig(getWorkspace(ref.workspaceId), ref.slot, ref.tabId);
       Object.assign(tab, { name: $('settingName').value.trim() || defaultTab(0).name, shell: $('settingShell').value,
-        cwd: $('settingCwd').value.trim(), command: $('settingCommand').value, exe: $('settingExe').value.trim(), args: $('settingArgs').value });
+        cwd: $('settingCwd').value.trim(), command: $('settingCommand').value, exe: $('settingExe').value.trim(), args: $('settingArgs').value, batchFile: $('settingBatchFile').value });
       closeSettings(); var view = getView(ref.workspaceId); renderPane(view, ref.slot); queueSave();
       showToast('已儲存終端設定；執行中程序會在下次啟動時套用。');
     });
@@ -1564,8 +1621,18 @@
     $('deleteCommandButton').addEventListener('click', deleteCommandSnippet);
     $('exportPackButton').addEventListener('click', exportCommandPack);
     $('importPackButton').addEventListener('click', function () { if (hostReady) send({ type: 'commandPackOpen' }); });
-    document.addEventListener('dragover', function (event) { if (event.dataTransfer && (event.dataTransfer.files.length || hasDataType(event.dataTransfer, 'Files'))) event.preventDefault(); });
-    document.addEventListener('drop', function (event) { if (event.dataTransfer && event.dataTransfer.files.length) { event.preventDefault(); importDroppedFiles(event.dataTransfer.files); } });
+    document.addEventListener('dragover', function (event) { if (event.dataTransfer && (event.dataTransfer.files.length || hasDataType(event.dataTransfer, 'Files'))) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } }, true);
+    document.addEventListener('drop', function (event) {
+      if (!event.dataTransfer || !event.dataTransfer.files.length) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      var files = Array.from(event.dataTransfer.files), batches = files.filter(function (f) { return /\.(bat|cmd)$/i.test(f.name); });
+      var target = batchTarget(event.target);
+      if (batches.length) {
+        if (document.querySelector('dialog[open]')) { showToast('請先關閉操作視窗，再把 BAT 拖到目標格子。', true); return; }
+        requestBatch(target.view, target.slot, batches);
+      }
+      importDroppedFiles(files.filter(function (f) { return !/\.(bat|cmd)$/i.test(f.name); }));
+    }, true);
     document.addEventListener('click', function (event) {
       if (!event.target.closest('#terminalContextMenu') && !event.target.closest('[data-action="menu"]')) $('terminalContextMenu').hidden = true;
       if (!event.target.closest('#appOptions')) $('appOptions').open = false;

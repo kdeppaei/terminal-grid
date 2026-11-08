@@ -68,3 +68,13 @@
 @media(max-width:600px){.app-header{min-height:94px}.header-actions{width:100%;justify-content:space-between}.feature-actions{padding-right:4px;border:0}.capture-panel{flex-basis:220px;padding:8px}.capture-heading h2{font-size:14px}.capture-add{flex-wrap:wrap}.capture-add input{flex-basis:100%}.capture-controls{flex-wrap:wrap}.toolbar .layout-group{gap:4px}.toolbar .button{font-size:11px}.dimension select{width:36px;min-width:36px}.workspace-add{font-size:11px}}
 @media(max-height:750px){.app-header{min-height:54px;padding-top:8px;padding-bottom:8px}.workspace-bar{height:36px;min-height:36px}.toolbar{min-height:44px;padding-top:6px;padding-bottom:6px}.pane-title-row{height:28px}.pane-tabs{height:26px}.pane-toolbar{height:27px}.pane-directory{height:18px}.pane-line-input{height:27px}.pane-line-editor{padding-top:4px}.pane-line-editor .line-send,.pane-line-editor .line-interrupt{height:27px;min-height:27px}.command-draft{padding:8px 12px;gap:6px}.command-draft-hint{font-size:11px}.command-draft-actions .button{font-size:11px;min-height:28px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* Offline, versioned in-app guide. */
+.help-modal { width: min(860px, calc(100vw - 48px)); }
+.help-nav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+.help-nav [aria-selected="true"] { background: #24454d; color: #a4ede3; border-color: #578c91; }
+.help-panel h3 { font-size: 14px; color: #d5e5ee; margin: 21px 0 7px; }
+.help-panel p { font-size: 13px; line-height: 1.85; color: #a9bdcb; margin: 0; overflow-wrap: anywhere; }
+.help-keys { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.7; }
+.help-keys th, .help-keys td { text-align: left; border-bottom: 1px solid #304351; padding: 12px 10px; vertical-align: top; }
+.help-keys th { width: 36%; color: #8fdfd4; font-weight: 500; }
+.help-keys td { color: #b9c9d6; }

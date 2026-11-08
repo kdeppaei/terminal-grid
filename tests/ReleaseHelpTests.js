@@ -1,0 +1,12 @@
+'use strict';
+const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const root = path.resolve(__dirname, '..'), help = require('../ui/help.js');
+const main = fs.readFileSync(path.join(root,'source/Main.cs'),'utf8');
+assert.match(help.version, /^\d+\.\d+\.\d+$/);
+assert.ok(main.includes('AssemblyVersion("'+help.version+'.0")'));
+assert.ok(main.includes('version = "'+help.version+'"'));
+assert.ok(fs.readFileSync(path.join(root,'Package.ps1'),'utf8').includes("$Version = '"+help.version+"'"));
+assert.equal(help.sections.length,4);
+assert.ok(help.sections[2].shortcuts.some(row => row[0] === 'Ctrl+C' && row[1].includes('有選取時複製')));
+assert.match(JSON.stringify(help), /tgridflow/); assert.match(JSON.stringify(help), /Update\.cmd/);
+console.log('Release help: version matches application/package; file rules, shortcuts and update guide bundled.');

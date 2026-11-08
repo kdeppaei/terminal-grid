@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '3.9.1',
+    [string]$Version = '3.10.0',
     [switch]$SkipBuild,
     [string]$ApplicationPath = (Join-Path $PSScriptRoot 'TerminalGridIntegrated.exe')
 )
@@ -9,13 +9,15 @@ $ApplicationPath = [System.IO.Path]::GetFullPath($ApplicationPath)
 if (-not $SkipBuild) { & (Join-Path $PSScriptRoot 'Build.ps1') -OutputPath $ApplicationPath }
 $applicationFile = $ApplicationPath
 if (-not (Test-Path -LiteralPath $applicationFile -PathType Leaf)) { throw 'Build the application first.' }
+if ((Get-Item -LiteralPath $applicationFile).VersionInfo.FileVersion -ne "$Version.0") { throw 'Application version does not match package version.' }
+if ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'ui\help.js') -Raw) -notmatch ("version: '" + [regex]::Escape($Version) + "'")) { throw 'Update the in-app help before packaging this version.' }
 $releaseFolder = Join-Path $PSScriptRoot '.release'
 $stageFolder = Join-Path $releaseFolder ('stage-' + [Guid]::NewGuid().ToString('N'))
 $payloadFolder = Join-Path $stageFolder 'TerminalGrid'
 New-Item -ItemType Directory -Path $payloadFolder -Force | Out-Null
 # The ui folder is an internal WebView2 runtime asset. Releases expose only the
 # Windows GUI executable; no standalone HTML package is produced.
-$payloadItems = @('Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'ui', 'licenses', 'source', 'examples', 'tests', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'RELEASE_NOTES.md', '使用說明.md', '驗證紀錄.md', 'SCRCPY_INTEGRATION_SPIKE.md', '預覽.png', 'dependencies.json', 'Build.ps1', 'UpdateAndLaunch.ps1', 'Package.ps1', 'Test.ps1')
+$payloadItems = @('Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'ui', 'licenses', 'source', 'examples', 'tests', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'AGENTS.md', 'README.md', 'RELEASE_NOTES.md', '使用說明.md', '驗證紀錄.md', 'SCRCPY_INTEGRATION_SPIKE.md', '預覽.png', 'dependencies.json', 'Build.ps1', 'UpdateAndLaunch.ps1', 'UpdateFromPackage.ps1', 'Update.cmd', 'Package.ps1', 'Test.ps1')
 foreach ($item in $payloadItems) {
     $sourceItem = Join-Path $PSScriptRoot $item
     if (-not (Test-Path -LiteralPath $sourceItem)) { throw "Missing package item: $item" }
@@ -23,6 +25,9 @@ foreach ($item in $payloadItems) {
 }
 Copy-Item -LiteralPath $applicationFile -Destination (Join-Path $payloadFolder 'TerminalGridIntegrated.exe')
 Copy-Item -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName($applicationFile)) 'TerminalGridNan.exe') -Destination $payloadFolder
+$packageFiles = @(Get-ChildItem -LiteralPath $payloadFolder -File -Recurse | ForEach-Object { [ordered]@{ path=$_.FullName.Substring($payloadFolder.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
+$manifest = [ordered]@{ format='terminal-grid-package'; version=$Version; files=$packageFiles } | ConvertTo-Json -Depth 4
+[IO.File]::WriteAllText((Join-Path $payloadFolder 'package-files.json'), $manifest, [Text.UTF8Encoding]::new($false))
 $packageName = "TerminalGrid-Windows-x64-v$Version.zip"
 $packagePath = Join-Path $releaseFolder $packageName
 Compress-Archive -LiteralPath $payloadFolder -DestinationPath $packagePath -Force
