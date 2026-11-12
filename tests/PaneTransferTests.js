@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../ui/pane-transfer.js'),'utf8'),context);const plan=context.window.TerminalGridTransfer.plan;let n=0;
+const config={workspaces:['a','b'].map(id=>({id,rows:1,cols:2,slots:[0,1].map(slot=>({activeTabId:'tab',tabs:[{id:'tab',name:id+slot,shell:'CMD',cwd:'C:\\Tools',batchFile:'C:\\Tools\\test.cmd'}]}))})),automations:[{name:'Test',workspaceId:'a',steps:[{action:'send',slot:0,tabId:'tab',text:'echo test'},{action:'pause',slot:0,tabId:'tab'}]}]};
+const a={workspaceId:'a',slot:0,tabId:'tab'},target={workspaceId:'a',slot:1};
+const run=mode=>plan(config,a,target,mode,()=> 'new'+(++n));
+let p=run('swap');assert.equal(p.config.workspaces[0].slots[1].tabs[0].name,'a0');assert.equal(p.config.automations[0].steps[0].slot,1);assert.equal(p.config.automations[0].steps[1].slot,0);assert.equal(p.moves.length,2);
+p=run('move');assert.equal(p.config.workspaces[0].slots[0].tabs[0].name,'新終端');assert.equal(p.config.workspaces[0].slots[1].tabs.length,2);assert.notEqual(p.destination.tabId,'tab');assert.equal(p.config.automations[0].steps[0].tabId,p.destination.tabId);
+p=run('copy');assert.equal(p.moves.length,0);assert.equal(p.config.automations[0].steps[0].slot,0);assert.equal(p.config.workspaces[0].slots[1].tabs[1].batchFile,'C:\\Tools\\test.cmd');assert.equal(config.workspaces[0].slots[1].tabs.length,1);
+assert.throws(()=>plan(config,a,{workspaceId:'b',slot:0},'move',()=> 'new'),/流程/);
+assert.throws(()=>plan(config,a,{workspaceId:'b',slot:2},'copy',()=> 'new'),/隱藏/);
+const full=JSON.parse(JSON.stringify(config));full.workspaces[0].slots[1].tabs=Array.from({length:8},(_,i)=>({id:'f'+i}));assert.throws(()=>plan(full,a,target,'copy',()=> 'new'),/8/);
+console.log('Pane transfer: swap, flow references, move collisions, last-tab replacement, copy isolation, cross-workspace guard, hidden slot and capacity checks passed.');

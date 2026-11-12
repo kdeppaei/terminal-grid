@@ -45,6 +45,9 @@ try {
     if ($exampleFiles.Count -ne 1) { throw 'Expected exactly one bundled JSON example.' }
     $configTest = Build-Test -Name 'ConfigTests' -Sources @('source\Config.cs', 'tests\ConfigTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
     Invoke-CheckedNative -Executable $configTest -Arguments @($exampleFiles[0].FullName)
+    $moveTest = Build-Test -Name 'PaneRelocationTests' -Sources @('source\Config.cs', 'source\PtySession.cs', 'source\PaneRelocation.cs', 'tests\PaneRelocationTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
+    Invoke-CheckedNative -Executable $moveTest -Arguments @()
+    $null = Build-Test -Name 'NativeEditingHarness' -Sources @('source\Config.cs', 'source\PtySession.cs', 'tests\NativeEditingHarness.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
     $targetTest = Build-Test -Name 'TargetDiscoveryTests' -Sources @('source\Config.cs', 'source\TargetDiscovery.cs', 'tests\TargetDiscoveryTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
     Invoke-CheckedNative -Executable $targetTest -Arguments @()
     New-Item -ItemType Directory -Path (Join-Path $testWork 'nan-tools') -Force | Out-Null

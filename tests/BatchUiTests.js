@@ -34,7 +34,7 @@ async function main() {
     await init(config);
     assert.equal((await messages('start')).length, 0);
     await page.locator('#appOptions summary').click(); await page.locator('#helpButton').click();
-    assert.match(await page.locator('#helpDialog .eyebrow').innerText(), /3\.10\.0/);
+    assert.ok((await page.locator('#helpDialog .eyebrow').innerText()).includes(require('../ui/help.js').version));
     await page.locator('#help-tab-1').click(); assert.match(await page.locator('#help-panel-1').innerText(), /JSON 流程資料/);
     await page.locator('#help-tab-2').click(); assert.match(await page.locator('#help-panel-2').innerText(), /有選取時複製/);
     fs.mkdirSync(path.join(root,'.test-work','batch-ui'), {recursive:true});

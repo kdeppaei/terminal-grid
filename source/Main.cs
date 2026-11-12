@@ -14,23 +14,10 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.10.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.11.0.0")]
 
 namespace TerminalGridIntegrated
 {
-    internal sealed class PaneState
-    {
-        public string WorkspaceId;
-        public int Slot;
-        public string TabId;
-        public int Generation;
-        public PtySession Session;
-        public ShellCommand Command;
-        public BlockingCollection<byte[]> Output = new BlockingCollection<byte[]>(256);
-        public bool Starting, Stopping, ExitSent;
-        public int? ExitCode;
-        public int InFlight;
-    }
     public sealed class TerminalForm : Form
     {
         const string Origin = "https://terminalgrid.local";
@@ -162,7 +149,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.10.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.11.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -188,6 +175,18 @@ namespace TerminalGridIntegrated
                     config = ConfigStore.ParseAppConfig(serializer.Serialize(value));
                     ConfigStore.Write(ConfigStore.DefaultPath, config);
                     if (type == "export") Ui(ExportConfig); else Status("配置已儲存。");
+                    return;
+                }
+                if (type == "relocate")
+                {
+                    string requestId = StringValue(message, "requestId");
+                    try {
+                        var next = ConfigStore.ParseAppConfig(serializer.Serialize(message["config"]));
+                        var moves = serializer.Deserialize<PaneMove[]>(serializer.Serialize(message["moves"]));
+                        PaneRelocation.Apply(panes, config, next, moves, delegate { ConfigStore.Write(ConfigStore.DefaultPath, next); });
+                        config = next;
+                        Send(new { type = "relocated", requestId = requestId });
+                    } catch (Exception ex) { Send(new { type = "relocated", requestId = requestId, error = ex.Message }); }
                     return;
                 }
                 if (type == "import") { Ui(ImportConfig); return; }
@@ -236,7 +235,19 @@ namespace TerminalGridIntegrated
                     QueueFolderPicker(workspaceId, index, tabId, StringValue(message, "requestId"), StringValue(message, "initialPath"));
                     return;
                 }
-                PaneState pane = GetPane(workspaceId, index, tabId);
+                // A running terminal keeps its route across a cell/workspace move.
+                // In-flight input and output acknowledgements may still carry the
+                // previous screen address; never route them to its new occupant.
+                string routeId = StringValue(message, "routeId");
+                PaneState pane = routeId.Length > 0 ? panes.Values.FirstOrDefault(p => p.RouteId == routeId) : null;
+                if (pane != null) { workspaceId = pane.WorkspaceId; index = pane.Slot; tabId = pane.TabId; targetWorkspace = FindWorkspace(workspaceId); }
+                else {
+                    pane = GetPane(workspaceId, index, tabId);
+                    if (pane != null && routeId.Length > 0) {
+                        if (pane.RouteId != null && pane.RouteId != routeId) return;
+                        pane.RouteId = routeId;
+                    }
+                }
                 if (pane == null) return;
                 if (!ValidGeneration(message, pane)) return;
                 if (type == "discoverCommandTargets") {

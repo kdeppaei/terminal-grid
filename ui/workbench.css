@@ -78,3 +78,10 @@
 .help-keys th, .help-keys td { text-align: left; border-bottom: 1px solid #304351; padding: 12px 10px; vertical-align: top; }
 .help-keys th { width: 36%; color: #8fdfd4; font-weight: 500; }
 .help-keys td { color: #b9c9d6; }
+.pane-title-row[draggable="true"] { cursor: grab; }
+.pane-title-row[draggable="true"]:active { cursor: grabbing; }
+.pane-dragging { opacity: .6; }
+.pane-drop-target { outline: 2px solid #7be0d4; outline-offset: -3px; }
+.transfer-dialog { width: min(520px, 90vw); }
+.transfer-pending { cursor: progress; }
+.transfer-pending::after { content: '正在移動終端…'; position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: #0c111955; color: #d4dfed; pointer-events: all; }

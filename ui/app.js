@@ -13,6 +13,8 @@
   var rightClickMode = 'quick';
   var nanDiscoveryId = null, nanPathId = null;
   var batchRequests = {};
+  var transferPending = null, paneClipboard = null, paneDrag = null;
+  var paneDragType = 'application/x-terminalgrid-pane';
   function discoverNanDevices() {
     if (!hostReady || !activeView) return;
     var state = focused ? focused.state : activeState(activeView, 0);
@@ -178,9 +180,11 @@
   }
   function send(message) {
     if (!host) return false;
+    var routed = message.workspaceId && getState(message.workspaceId, message.slot, message.tabId);
+    if (routed) message.routeId = routed.routeId;
     if (message.type === 'input') {
       var target = getState(message.workspaceId, message.slot, message.tabId);
-      if (target && target.liveReplace) { target.liveReplace.input(); target.liveIntent = false; }
+      if (target && target.liveReplace && !/^\x1b\[(?:[IO]|\??[0-9;]*[Rc])$/.test(message.data)) { target.liveReplace.input(message.data); target.liveIntent = false; }
     }
     try { host.postMessage(message); return true; }
     catch (error) { showToast('無法連接終端引擎：' + error.message, true); return false; }
@@ -192,6 +196,7 @@
   }
   function saveConfig(announce) {
     window.clearTimeout(saveTimer);
+    if (transferPending) return;
     appConfig.activeWorkspaceId = activeView ? activeView.config.id : appConfig.activeWorkspaceId;
     if (hostReady) { send({ type: 'save', config: appConfig }); if (announce) setStatus('正在儲存配置…'); }
   }
@@ -451,7 +456,7 @@
       theme: { background: '#0c1119', foreground: '#d4dfed', cursor: '#7be0d4', cursorAccent: '#0c1119', selectionBackground: '#355a7c99', selectionInactiveBackground: '#2d435e88', black: '#263143', red: '#f1848d', green: '#8accab', yellow: '#e3c27e', blue: '#81a9ef', magenta: '#ba9de8', cyan: '#72c7d1', white: '#c7d4e5', brightBlack: '#63758f', brightRed: '#ff9da6', brightGreen: '#abe3c2', brightYellow: '#f4dc9e', brightBlue: '#a1c3ff', brightMagenta: '#d0b7f9', brightCyan: '#9fe2e5', brightWhite: '#f1f5fc' }
     });
     var fit = new window.FitAddon.FitAddon(); terminal.loadAddon(fit); terminal.open(mount.querySelector('.terminal-mount'));
-    var state = { workspaceId: view.config.id, slot: slot, tabId: tabConfig.id, layer: mount, terminal: terminal, fit: fit,
+    var state = { workspaceId: view.config.id, slot: slot, tabId: tabConfig.id, routeId: uid('route'), layer: mount, terminal: terminal, fit: fit,
       status: 'idle', generation: null, pid: null, exitCode: null, hasOutput: false, clearOnStarted: false };
     resetCaptureScanner(state);
     view.panes[slot].tabs.push(state);
@@ -479,7 +484,7 @@
         event.preventDefault(); event.stopPropagation();
         if (event.type === 'keydown' && !event.repeat) {
           var bounds = mount.getBoundingClientRect();
-          markFocused(view, slot, state.tabId); showTerminalMenu(bounds.left + 12, bounds.top + 12, state);
+          markFocused(getView(state.workspaceId), state.slot, state.tabId); showTerminalMenu(bounds.left + 12, bounds.top + 12, state);
         }
         return false;
       }
@@ -497,6 +502,11 @@
         if (event.type === 'keydown' && !event.repeat) replaceLiveSelection(state, '');
         return false;
       }
+      if (state.terminal.hasSelection() && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing && event.key && event.key.length === 1) {
+        event.preventDefault(); event.stopPropagation();
+        if (event.type === 'keydown') replaceLiveSelection(state, event.key);
+        return false;
+      }
       return true;
     });
     mount.querySelector('.terminal-mount').addEventListener('paste', function (event) {
@@ -505,7 +515,7 @@
     }, true);
     mount.addEventListener('contextmenu', function (event) {
       if (event.target.closest('.pane-line-editor')) return;
-      event.preventDefault(); event.stopImmediatePropagation(); markFocused(view, slot, state.tabId);
+      event.preventDefault(); event.stopImmediatePropagation(); markFocused(getView(state.workspaceId), state.slot, state.tabId);
       if (event.shiftKey || event.button !== 2 || rightClickMode === 'menu') {
         showTerminalMenu(event.clientX, event.clientY, state); return;
       }
@@ -522,8 +532,8 @@
       }
     }, true);
     mount.addEventListener('click', function (event) {
-      if (event.target.closest('button[data-action="start"]')) { startSlot(view, slot, state.tabId, false); return; }
-      markFocused(view, slot, state.tabId);
+      if (event.target.closest('button[data-action="start"]')) { startSlot(getView(state.workspaceId), state.slot, state.tabId, false); return; }
+      markFocused(getView(state.workspaceId), state.slot, state.tabId);
     });
     mount.addEventListener('dragover', function (event) { if (hasDataType(event.dataTransfer, 'application/x-terminalgrid-command') || hasDataType(event.dataTransfer, 'application/x-terminalgrid-value')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } });
     mount.addEventListener('drop', function (event) {
@@ -532,7 +542,7 @@
       if (!value || (!captured && !hasDataType(event.dataTransfer, 'application/x-terminalgrid-command'))) return;
       event.preventDefault(); event.stopPropagation();
       if (captured && !validCaptureText(value)) return;
-      markFocused(view, slot, state.tabId); insertCommand(state, value, captured);
+      markFocused(getView(state.workspaceId), state.slot, state.tabId); insertCommand(state, value, captured);
     });
     if (terminal.textarea) terminal.textarea.setAttribute('aria-label', '第 ' + (slot + 1) + ' 格 ' + tabConfig.name + ' 可操作終端');
     return state;
@@ -549,6 +559,7 @@
     element.querySelector('.pane-folder').innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 5h5l2 2h8v9h-15z"/><path d="M2.5 5V3.5h5l2 2H17v1.5"/></svg>';
     var cell = { element: element, container: element.querySelector('.terminal-container'), tabs: [], config: view.config.slots[index] };
     view.panes[index] = cell;
+    installPaneTransfer(view, index);
     cell.config.tabs.forEach(function (tab) { makeTerminal(view, index, tab); });
     element.querySelector('.pane-tabs').addEventListener('click', function (event) {
       var button = event.target.closest('[data-tab-id]');
@@ -608,6 +619,8 @@
       button.textContent = workspace.name; button.title = '左鍵切換；右鍵編輯或刪除'; button.dataset.workspaceId = workspace.id;
       button.addEventListener('click', function () { activateWorkspace(workspace.id); });
       button.addEventListener('contextmenu', function (event) { event.preventDefault(); openWorkspaceDialog(workspace.id); });
+      button.addEventListener('dragenter', function (event) { if (paneDrag && hasDataType(event.dataTransfer, paneDragType) && activeView.config.id !== workspace.id) activateWorkspace(workspace.id); });
+      button.addEventListener('dragover', function (event) { if (paneDrag) event.preventDefault(); });
       strip.appendChild(button);
     });
     $('addWorkspaceButton').disabled = appConfig.workspaces.length >= 12;
@@ -711,6 +724,7 @@
     cell.config.tabs.forEach(function (item) {
       var button = document.createElement('button'); button.type = 'button'; button.className = 'terminal-tab';
       button.dataset.tabId = item.id; button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(item.id === cell.config.activeTabId));
+      button.draggable = true;
       button.title = item.name + ' · ' + stateLabel(getState(view.config.id, slot, item.id)); button.textContent = item.name;
       var remove = document.createElement('span'); remove.className = 'terminal-tab-close'; remove.textContent = '×'; remove.title = '移除此終端分頁';
       remove.addEventListener('click', function (event) { event.stopPropagation(); removeTerminalTab(view, slot, item.id); });
@@ -735,15 +749,16 @@
   }
   function removeTerminalTab(view, slot, tabId) {
     var cell = view.panes[slot], state = getState(view.config.id, slot, tabId);
-    if (!state || cell.config.tabs.length <= 1) { showToast('每格至少保留一個終端分頁。'); return; }
+    if (!state || isBusy(state) || transferPending) { showToast('請等目前操作完成。'); return; }
     askConfirmation('移除終端分頁？', '「' + (getTabConfig(view.config, slot, tabId).name) + '」中的執行中程序也會結束。', '移除分頁').then(function (accepted) {
       if (!accepted) return;
       if (isActive(state)) send(withGeneration(state, { type: 'stop' }));
       pruneCaptures(state); disposeTerminal(state); state.layer.remove();
       cell.tabs = cell.tabs.filter(function (s) { return s !== state; });
       cell.config.tabs = cell.config.tabs.filter(function (t) { return t.id !== tabId; });
+      if (!cell.config.tabs.length) { var empty = defaultTab(0, uid('tab')); cell.config.tabs.push(empty); makeTerminal(view, slot, empty); }
       if (cell.config.activeTabId === tabId) cell.config.activeTabId = cell.config.tabs[0].id;
-      renderPane(view, slot); queueSave(); updateCounts();
+      renderPane(view, slot); if (focused && focused.state === state) markFocused(view, slot, cell.config.activeTabId); queueSave(); updateCounts();
     });
   }
   function applyLayout(view) {
@@ -971,6 +986,14 @@
     return allowNew ? message.generation < state.generation : message.generation !== state.generation;
   }
   function handleHostMessage(message) {
+    if (message.type === 'relocated') {
+      if (!transferPending || message.requestId !== transferPending.id) return;
+      var transfer = transferPending; transferPending = null;
+      document.body.classList.remove('transfer-pending');
+      if (message.error) showToast('未移動：' + message.error, true);
+      else { applyTransfer(transfer.plan); showToast('已移動，執行中的程序與輸出保留。'); }
+      saveConfig(false); return;
+    }
     if (!message || typeof message !== 'object' || typeof message.type !== 'string') return;
     if (message.type === 'batchFiles') { handleBatchFiles(message); return; }
     if (message.type === 'commandTargets' && nanDiscoveryId && message.requestId === nanDiscoveryId) {
@@ -1370,6 +1393,104 @@
       showToast('指令包已匯入；指令只會在選取終端並按插入時填入文字。');
     } catch (error) { showToast('匯入指令包失敗：' + error.message, true); }
   }
+  function stateAddress(state) { return { workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId }; }
+  function canTransfer() {
+    if (!hostReady || transferPending || flowRunning || flowPreparing || pendingFolderRequest || Object.keys(batchRequests).length || document.querySelector('dialog[open]')) {
+      showToast('請先完成目前流程、對話框或移動操作。', true); return false;
+    }
+    return true;
+  }
+  function applyTransfer(plan) {
+    var moving = plan.moves.map(function (m) { return { state: getState(m.from.workspaceId, m.from.slot, m.from.tabId), move: m }; });
+    // Capture references before changing any address (a swap can have equal tab IDs).
+    var captures = capturedValues.map(function (item) { return { item: item, move: plan.moves.find(function (m) { return item.workspaceId === m.from.workspaceId && item.slot === m.from.slot && item.tabId === m.from.tabId; }) }; });
+    moving.forEach(function (entry) { var s = entry.state, c = getView(s.workspaceId).panes[s.slot]; c.tabs = c.tabs.filter(function (t) { return t !== s; }); });
+    appConfig = plan.config;
+    views.forEach(function (view) { view.config = getWorkspace(view.config.id); view.panes.forEach(function (cell, i) { cell.config = view.config.slots[i]; }); });
+    moving.forEach(function (entry) {
+      var state = entry.state, to = entry.move.to, cell = getView(to.workspaceId).panes[to.slot];
+      state.workspaceId = to.workspaceId; state.slot = to.slot; state.tabId = to.tabId;
+      cell.tabs.push(state); cell.container.appendChild(state.layer);
+      state.liveReplace.invalidate(); state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
+      state.terminal.textarea.setAttribute('aria-label', '第 ' + (state.slot + 1) + ' 格 ' + getTabConfig(getWorkspace(state.workspaceId), state.slot, state.tabId).name + ' 可操作終端');
+    });
+    captures.forEach(function (entry) {
+      if (!entry.move) return; var item = entry.item, to = entry.move.to, workspace = getWorkspace(to.workspaceId);
+      item.workspaceId = to.workspaceId; item.slot = to.slot; item.tabId = to.tabId;
+      item.key = [to.workspaceId, to.slot, to.tabId, item.interfaceName, item.address.toLowerCase()].join('|');
+      item.source = workspace.name + ' · ' + String(to.slot + 1).padStart(2, '0') + ' · ' + getTabConfig(workspace, to.slot, to.tabId).name;
+    });
+    views.forEach(function (view) { view.panes.forEach(function (cell, i) { cell.config.tabs.forEach(function (t) { if (!getState(view.config.id, i, t.id)) makeTerminal(view, i, t); }); renderPane(view, i); }); });
+    var dest = plan.destination, view = getView(dest.workspaceId); view.zoomedSlot = null;
+    activateWorkspace(dest.workspaceId); markFocused(view, dest.slot, dest.tabId);
+    if (paneClipboard && paneClipboard.mode === 'move') paneClipboard = null;
+    queueCaptureRender(); renderFlowOptions(); scheduleFit();
+  }
+  function transferPane(source, target, mode) {
+    if (!canTransfer()) return;
+    try {
+      var plan = window.TerminalGridTransfer.plan(appConfig, source, target, mode, function () { return uid('tab'); });
+      if (plan.moves.some(function (m) { var s = getState(m.from.workspaceId, m.from.slot, m.from.tabId); return !s || isBusy(s); })) throw Error('請等終端啟動或停止完成再移動。');
+      if (mode === 'copy') { applyTransfer(plan); saveConfig(false); showToast('已複製啟動資料夾與設定；新分頁尚未執行。'); return; }
+      window.clearTimeout(saveTimer);
+      transferPending = { id: uid('move'), plan: plan }; document.body.classList.add('transfer-pending');
+      if (!send({ type: 'relocate', requestId: transferPending.id, config: plan.config, moves: plan.moves })) { transferPending = null; document.body.classList.remove('transfer-pending'); }
+    } catch (error) { showToast(error.message, true); }
+  }
+  function chooseTransferTarget(state, mode) {
+    if (!canTransfer()) return;
+    var source = stateAddress(state), dialog = document.createElement('dialog'); dialog.className = 'modal transfer-dialog';
+    dialog.innerHTML = '<form method="dialog"><div class="modal-heading"><h2></h2></div><div class="modal-content"><p>選擇工作區及格子，加入為新分頁。移動保留程序與輸出；複製使用設定中的啟動資料夾，不會執行。</p><label class="field">工作區<select class="transfer-workspace"></select></label><label class="field">格子<select class="transfer-slot"></select></label></div><div class="modal-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="apply">確定</button></div></form>';
+    dialog.querySelector('h2').textContent = mode === 'copy' ? '複製終端設定到…' : '移動終端到…';
+    var workspace = dialog.querySelector('.transfer-workspace'), slot = dialog.querySelector('.transfer-slot');
+    appConfig.workspaces.forEach(function (w) { workspace.add(new Option(w.name, w.id)); }); workspace.value = state.workspaceId;
+    function refresh() { var w = getWorkspace(workspace.value); slot.textContent = ''; for (var i = 0; i < w.rows * w.cols; i++) slot.add(new Option(String(i + 1).padStart(2, '0') + ' · ' + w.slots[i].tabs.length + '/8 頁', i)); }
+    workspace.addEventListener('change', refresh); refresh();
+    dialog.addEventListener('close', function () { var apply = dialog.returnValue === 'apply', target = { workspaceId: workspace.value, slot: Number(slot.value) }; dialog.remove(); if (apply) transferPane(source, target, mode); });
+    document.body.appendChild(dialog); dialog.showModal(); workspace.focus();
+  }
+  function addPaneMenuActions(add, state) {
+    add('複製此分頁設定', function () { paneClipboard = { mode: 'copy', source: stateAddress(state) }; showToast('已複製來源；到目標格標題按右鍵貼上設定。'); });
+    add('剪下此分頁（貼上後移動）', function () { paneClipboard = { mode: 'move', source: stateAddress(state) }; showToast('已標記來源；到目標格標題按右鍵貼上，不會先關閉程序。'); });
+    if (paneClipboard) add(paneClipboard.mode === 'copy' ? '在此格貼上分頁設定' : '將剪下的分頁移到此格', function () { transferPane(paneClipboard.source, stateAddress(state), paneClipboard.mode); });
+    add('複製設定到工作區／格子…', function () { chooseTransferTarget(state, 'copy'); });
+    add('移動到工作區／格子…', function () { chooseTransferTarget(state, 'move'); });
+    add('關閉並移除此分頁…', function () { removeTerminalTab(getView(state.workspaceId), state.slot, state.tabId); });
+  }
+  function showPaneMenu(event, state) {
+    event.preventDefault(); event.stopPropagation();
+    markFocused(getView(state.workspaceId), state.slot, state.tabId);
+    var menu = $('terminalContextMenu'); menu.textContent = ''; menu.className = 'terminal-context-menu';
+    function add(label, action) { var b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', function (e) { e.stopPropagation(); menu.hidden = true; action(); }); menu.appendChild(b); }
+    addPaneMenuActions(add, state);
+    add('終端設定…', function () { openSettings(getView(state.workspaceId), state.slot, state.tabId); });
+    positionContextMenu(menu, event.clientX, event.clientY); menu.firstChild.focus();
+  }
+  function installPaneTransfer(view, slot) {
+    var element = view.panes[slot].element, title = element.querySelector('.pane-title-row');
+    title.draggable = true; title.title = '拖曳標題交換整格；拖曳分頁移動單一終端；右鍵管理';
+    element.querySelector('.pane-header').addEventListener('contextmenu', function (event) {
+      var tab = event.target.closest('[data-tab-id]'); showPaneMenu(event, tab ? getState(view.config.id, slot, tab.dataset.tabId) : activeState(view, slot));
+    });
+    element.addEventListener('dragstart', function (event) {
+      var tab = event.target.closest('[data-tab-id]');
+      if (!tab && event.target !== title) return;
+      if (!canTransfer()) { event.preventDefault(); return; }
+      var state = tab ? getState(view.config.id, slot, tab.dataset.tabId) : activeState(view, slot);
+      paneDrag = { source: stateAddress(state), mode: tab ? 'move' : 'swap' };
+      event.dataTransfer.setData(paneDragType, 'internal'); event.dataTransfer.effectAllowed = 'move'; element.classList.add('pane-dragging');
+    });
+    element.addEventListener('dragover', function (event) { if (!paneDrag || !hasDataType(event.dataTransfer, paneDragType)) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; element.classList.add('pane-drop-target'); });
+    element.addEventListener('dragleave', function (event) { if (!element.contains(event.relatedTarget)) element.classList.remove('pane-drop-target'); });
+    element.addEventListener('drop', function (event) {
+      if (!paneDrag || !hasDataType(event.dataTransfer, paneDragType)) return;
+      event.preventDefault(); event.stopImmediatePropagation(); var drag = paneDrag; clearPaneDrag();
+      transferPane(drag.source, { workspaceId: view.config.id, slot: slot }, drag.mode);
+    }, true);
+  }
+  function clearPaneDrag() { paneDrag = null; document.querySelectorAll('.pane-dragging,.pane-drop-target').forEach(function (e) { e.classList.remove('pane-dragging', 'pane-drop-target'); }); }
+  document.addEventListener('dragend', clearPaneDrag);
+  ['keydown', 'paste', 'click', 'contextmenu', 'drop'].forEach(function (name) { document.addEventListener(name, function (event) { if (transferPending) { event.preventDefault(); event.stopImmediatePropagation(); } }, true); });
   function showTerminalMenu(x, y, state) {
     var menu = $('terminalContextMenu'); menu.textContent = ''; menu.className = 'terminal-context-menu';
     function add(label, action) { var button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', function (event) { event.stopPropagation(); menu.hidden = true; action(); }); menu.appendChild(button); }
@@ -1384,6 +1505,7 @@
     add('選擇啟動資料夾…', function () { choosePaneFolder(getView(state.workspaceId), state.slot, state.tabId); });
     add('選檔執行 BAT／CMD…', function () { requestBatch(getView(state.workspaceId), state.slot); });
     add('終端設定…', function () { openSettings(getView(state.workspaceId), state.slot, state.tabId); });
+    addPaneMenuActions(add, state);
     var separator = document.createElement('div'); separator.className = 'context-separator'; menu.appendChild(separator);
     add('開啟指令庫…', function () { renderCommandLibrary(); $('commandDialog').showModal(); });
     window.TerminalGridDefaults.packs.forEach(function (pack) { add(pack.name + '…', function () { renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); $('commandDialog').showModal(); }); });
