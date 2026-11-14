@@ -94,3 +94,20 @@
 #flowLogPath { overflow-wrap: anywhere; }
 #terminalLogText { width: 100%; resize: vertical; margin: 10px 0; font: 12px Consolas, monospace; }
 #flowPauseDialog[open] { position: fixed; inset: auto 16px 32px auto; margin: 0; z-index: 12; }
+.completion-menu {
+  position: fixed;
+  z-index: 300;
+  padding: 5px;
+  background: #202a37;
+  border: 1px solid #526073;
+  border-radius: 7px;
+  box-shadow: 0 12px 32px #0009;
+  font-size: 12px;
+}
+.completion-menu[hidden] { display: none; }
+.completion-menu ul { list-style: none; margin: 0; padding: 0; max-height: min(236px, 46vh); overflow-y: auto; }
+.completion-menu li { cursor: pointer; padding: 6px 8px; border-radius: 4px; display: flex; gap: 8px; align-items: baseline; }
+.completion-menu li[aria-selected="true"], .completion-menu li:hover { background: #354a5c; color: #f1ffff; }
+.completion-menu li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, "Microsoft JhengHei", monospace; }
+.completion-menu small, .completion-menu p { color: #b2c6dc; }
+.completion-menu p { margin: 4px 8px 2px; font-size: 11px; }

@@ -212,6 +212,27 @@ async function main() {
     source.generation = 2; await emit({ type: 'started', pid: 5678 });
     await page.evaluate(() => { window.fixture.deferred = false; window.fixture.resolve('222'); }); await expectInput([]);
     pass('delayed clipboard cannot replace a restarted session');
+    await paint('ipref3 -c 192.0.2.10', 'C:\\test>', 6); await select('ipref3'); await raw.focus();
+    await page.keyboard.press('Control+Space');
+    assert.equal(await page.locator('#completionOptions [aria-selected="true"] span').innerText(), 'iperf3');
+    await page.keyboard.press('Enter');
+    await expectInput(['\x1b[C'.repeat(14) + '\x7f'.repeat(20) + 'iperf3 -c 192.0.2.10' + '\x1b[D'.repeat(14)]);
+    pass('Ctrl+Space on selected terminal command corrects the typo with suffix retained and no Enter sent');
+    await paint('ipref3'); await select('ipref3'); await raw.focus(); await page.keyboard.press('Control+Space');
+    await emit({ type: 'output', data: Buffer.from('\x1b[0m').toString('base64') });
+    await page.locator('#completionMenu').waitFor({ state: 'hidden' });
+    await expectInput([]);
+    pass('terminal output closes a potentially stale completion');
+    await paint('ipref3 -c 192.0.2.10'); await select('ipref3');
+    await raw.click({ button: 'right', modifiers: ['Shift'], force: true });
+    await page.locator('#terminalContextMenu').getByRole('button', { name: '原位替換選取文字…', exact: true }).click();
+    await page.locator('.live-replace-text').fill(''); await page.keyboard.press('Control+Space');
+    await page.locator('#completionOptions').getByRole('option', { name: /iperf3/ }).click();
+    assert.equal(await page.locator('.live-replace-text').inputValue(), 'iperf3');
+    await expectInput([]);
+    await page.locator('.live-replace-text').press('Enter');
+    await expectInput(['\x7f'.repeat(20) + 'iperf3 -c 192.0.2.10' + '\x1b[D'.repeat(14)]);
+    pass('the replacement field previews a suggestion before committing the original terminal selection');
     assert.deepEqual(errors, []);
     console.log('Live replacement UI: ' + groups + ' groups passed; mocked host/clipboard, real xterm and mouse.');
   } catch (error) {

@@ -19,7 +19,7 @@
     options = options || {};
     if (!input || typeof input.setSelectionRange !== 'function') throw new TypeError('Text editing requires a text input or textarea.');
     var doc = input.ownerDocument;
-    var selection = null, dragging = false, disposed = false, revision = 0;
+    var selection = null, dragging = false, disposed = false, revision = 0, replacementCompletion = null;
     var listeners = [];
     input.maxLength = MAX_LENGTH;
     var menu = doc.createElement('div');
@@ -57,6 +57,7 @@
       return !!saved && saved.end > saved.start;
     }
     function closeMenu() {
+      if (replacementCompletion) { replacementCompletion.dispose(); replacementCompletion = null; }
       menu.hidden = true;
       if (typeof options.onMenuChange === 'function') options.onMenuChange(false);
     }
@@ -142,6 +143,7 @@
       if (disposed) return;
       var saved = snapshot();
       if (!saved) return;
+      if (replacementCompletion) { replacementCompletion.dispose(); replacementCompletion = null; }
       menu.replaceChildren();
       var actions = element('div', 'text-edit-actions');
       var selected = saved.end > saved.start;
@@ -158,10 +160,10 @@
       replacement.spellcheck = false;
       label.appendChild(replacement);
       menu.appendChild(label);
-      var apply = addAction(menu, selected ? '取代選取文字' : '插入文字', function () { insert(replacement.value, false); });
+      var apply = addAction(menu, selected ? '取代選取文字' : '插入文字', function () { applyInsertion(replacement.value, saved, selected); });
       apply.classList.add('text-edit-apply');
       replacement.addEventListener('keydown', function (keyEvent) {
-        if (keyEvent.key === 'Enter') { keyEvent.preventDefault(); keyEvent.stopPropagation(); if (!keyEvent.isComposing && !keyEvent.repeat) insert(replacement.value, false); }
+        if (keyEvent.key === 'Enter') { keyEvent.preventDefault(); keyEvent.stopPropagation(); if (!keyEvent.isComposing && !keyEvent.repeat) applyInsertion(replacement.value, saved, selected); }
       });
       var type = selected ? valueType(saved.value.slice(saved.start, saved.end)) : null;
       var values = [];
@@ -184,7 +186,7 @@
         button.type = 'button';
         button.appendChild(element('span', 'text-edit-value', item.address));
         if (typeof item.source === 'string' && item.source) button.appendChild(element('span', 'text-edit-source', item.source.slice(0, 300)));
-        button.addEventListener('click', function () { insert(item.address, false); });
+        button.addEventListener('click', function () { applyInsertion(item.address, saved, selected); });
         menu.appendChild(button);
       });
       menu.hidden = false;
@@ -197,6 +199,7 @@
       menu.style.top = Math.max(8, Math.min(event ? event.clientY : rect.bottom + 4, root.innerHeight - height - 8)) + 'px';
       if (typeof options.onMenuChange === 'function') options.onMenuChange(true);
       replacement.focus();
+      if (options.attachReplacementCompletion) replacementCompletion = options.attachReplacementCompletion(replacement, saved.value.slice(saved.start, saved.end));
     }
 
     listen(input, 'select', function () { if (doc.activeElement === input) rememberSelection(); });
@@ -268,8 +271,14 @@
     rememberSelection();
     return {
       insert: insert, hasSelection: hasSelection, openMenu: openMenu, closeMenu: closeMenu,
+      replaceRange: function (value, start, end) {
+        var saved = snapshot();
+        if (!saved) return false;
+        saved.start = start; saved.end = end;
+        return applyInsertion(value, saved, false);
+      },
       isMenuOpen: function () { return !menu.hidden; }, rememberSelection: rememberSelection,
-      dispose: function () { disposed = true; listeners.forEach(function (remove) { remove(); }); listeners = []; menu.remove(); }
+      dispose: function () { disposed = true; closeMenu(); listeners.forEach(function (remove) { remove(); }); listeners = []; menu.remove(); }
     };
   }
 

@@ -369,6 +369,53 @@ async function main() {
     assert.equal((await inputs())[0].tabId, sourceB.tabId);
     passed('the editor interrupt button targets its own terminal');
 
+    const choices = page.locator('#completionOptions');
+    await editorB.fill(''); await editorB.focus(); await reset();
+    await page.keyboard.type('ipref3');
+    assert.equal(await choices.locator('[aria-selected="true"] span').innerText(), 'iperf3');
+    assert.match(await choices.locator('[aria-selected="true"] small').innerText(), /拼字建議/);
+    await page.keyboard.down('Enter'); await page.keyboard.down('Enter'); await page.keyboard.up('Enter');
+    assert.equal(await editorB.inputValue(), 'iperf3');
+    await expectInputs([]);
+    passed('typing a typo offers a correction, and accepting it with held Enter never sends a command');
+
+    await editorB.press('Control+Space');
+    await choices.getByRole('option', { name: /iperf3 client/ }).click();
+    assert.equal(await editorB.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd)), '192.0.2.10');
+    await page.keyboard.type('10.0.0.123'); await page.keyboard.press('Tab');
+    assert.equal(await editorB.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd)), '30');
+    await page.keyboard.type('60'); await page.keyboard.press('Shift+Tab');
+    assert.equal(await editorB.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd)), '10.0.0.123');
+    assert.equal(await editorB.inputValue(), 'iperf3 -c 10.0.0.123 -t 60');
+    await expectInputs([]);
+    passed('Overleaf-style fields track typed edits and Tab or Shift+Tab selects the correct field');
+
+    await editorB.fill('echo exe'); await editorB.focus(); await page.keyboard.press('Control+Space');
+    await choices.getByRole('option', { name: /echo execute-B/ }).click();
+    assert.equal(await editorB.inputValue(), 'echo execute-B');
+    await expectInputs([]);
+    passed('history completion restores a command from the current app session without running it');
+
+    await page.locator('#draftButton').click();
+    const draft = page.locator('#commandDraftText');
+    await draft.fill('ping -6 2001:db8::a');
+    await draft.focus();
+    await draft.evaluate(el => { el.dispatchEvent(new CompositionEvent('compositionstart')); el.setSelectionRange(0, 4); });
+    await page.keyboard.press('Control+Space');
+    assert.equal(await page.locator('#completionMenu').isVisible(), false);
+    await draft.evaluate(el => {
+      el.dispatchEvent(new CompositionEvent('compositionend'));
+      el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.keyboard.type('ipref3');
+    await choices.getByRole('option', { name: /iperf3/ }).waitFor({ state: 'visible' });
+    await page.screenshot({ path: path.join(root, '.test-work', 'completion-draft.png') });
+    await page.keyboard.press('Escape');
+    assert.equal(await draft.inputValue(), 'ipref3');
+    await page.locator('[aria-label="收合指令草稿"]').click();
+    await expectInputs([]);
+    passed('draft suggestions respect IME composition and Escape preserves the original input');
+
     await page.locator('#closeCaptureButton').click();
     await page.setViewportSize({ width: 900, height: 620 });
     await editorB.scrollIntoViewIfNeeded();

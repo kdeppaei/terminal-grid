@@ -21,6 +21,8 @@
         <button id="saveButton" class="button">儲存配置</button>
         <details id="appOptions" class="app-options"><summary class="button quiet" title="配置、右鍵偏好與使用說明">⋯ 更多</summary><div class="app-options-menu">
           <label><input id="showLineEditors" type="checkbox" checked> 顯示每格輸入列</label>
+          <label><input id="smartCompletion" type="checkbox" checked> 智慧指令建議</label>
+          <button id="clearCompletionHistory" type="button" class="button">清除本次補全歷史</button>
           <label for="rightClickMode">終端右鍵操作</label><select id="rightClickMode"><option value="quick">快速複製／貼上</option><option value="menu">開啟功能選單</option></select>
           <p>快速模式：有選取就複製，無選取就貼上。Shift＋右鍵或每格 ⋯ 仍可開啟選單。</p>
           <div class="options-divider"></div><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="helpButton" class="button quiet">使用說明</button>
@@ -140,6 +142,7 @@
     <div class="modal-actions"><button id="undoPaneButton" class="button">復原上一次操作</button></div>
   </dialog>
   <script src="flow-output.js"></script>
+  <script src="completion.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

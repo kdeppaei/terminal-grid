@@ -35,6 +35,18 @@ async function main(){
   await page.keyboard.type('000111000',{delay:35});await page.waitForTimeout(150);await select('111');await page.keyboard.type('222',{delay:60});await page.waitForTimeout(350);
   assert.ok((await text()).includes('echo 000222000'),shell+' typed replacement must preserve the suffix');count++;
   await page.keyboard.press('Enter');await page.waitForTimeout(350);assert.match(await text(),/222/);
+  await page.keyboard.type('ipref3',{delay:50});
+  await page.locator('#completionOptions [aria-selected="true"]').waitFor({state:'visible'});
+  assert.match(await page.locator('#completionOptions [aria-selected="true"]').innerText(),/iperf3/);
+  const inputCount=await page.evaluate(()=>fixture.messages.filter(m=>m.type==='input' && m.data.includes('\r')).length);
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(()=>{
+    const t=fixture.terminals[0],b=t.buffer.active;
+    // PSReadLine may display its own suggestion after the caret.
+    return b.getLine(b.baseY+b.cursorY).translateToString(false,0,b.cursorX).endsWith('iperf3');
+  });
+  assert.equal(await page.evaluate(()=>fixture.messages.filter(m=>m.type==='input' && m.data.includes('\r')).length),inputCount);
+  count++;
   child.stdin.end();await chain;await page.close();lines.close();child=null;
  }
  console.log('Native editing UI: '+count+' actual CMD/PowerShell and mouse/keyboard checks passed.');

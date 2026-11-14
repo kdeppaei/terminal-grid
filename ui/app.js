@@ -18,6 +18,7 @@
   var activeRun = null, lastRun = null, failedFlowStep = null;
   var evidence = null, logState = null;
   var paneHistory = [], selectedPanes = new Map();
+  var completionMenu, completionHistory = [], completionCatalog, completionCommands = [];
   function discoverNanDevices() {
     if (!hostReady || !activeView) return;
     var state = focused ? focused.state : activeState(activeView, 0);
@@ -72,6 +73,33 @@
     if (!send({ type: 'discoverCommandTargets', requestId: id, workspaceId: target.state.workspaceId, slot: target.state.slot, tabId: target.state.tabId, android: true, paths: true })) $('targetDiscoveryStatus').textContent = '偵測尚未就緒，可手動輸入。';
   }
   function allCommandPacks() { return window.TerminalGridDefaults.packs.concat(appConfig.commandPacks); }
+  function completionSources() {
+    if (completionCatalog !== appConfig.commandPacks) {
+      completionCatalog = appConfig.commandPacks;
+      var commands = allCommandPacks().flatMap(function (pack) { return pack.commands.map(function (item) { return item.command.slice(0, 512); }); });
+      completionCommands = window.TerminalGridCompletion.catalog(commands);
+    }
+    return { commands: completionCommands, history: completionHistory, values: capturedValues };
+  }
+  function rememberCommand(command) {
+    if (!completionEnabled()) return;
+    command = command.trim();
+    if (!command || command.length > 1024 || !validLineText(command)) return;
+    completionHistory = [command].concat(completionHistory.filter(function (item) { return item !== command; })).slice(0, 120);
+  }
+  function completionEnabled() { return $('smartCompletion').checked; }
+  function attachCommandCompletion(input, editor) {
+    return window.TerminalGridCompletion.attachEditor(input, { menu: completionMenu, enabled: completionEnabled, sources: completionSources,
+      snippets: true, apply: editor.replaceRange, isMenuOpen: editor.isMenuOpen });
+  }
+  function attachReplacementCompletion(input, selected) {
+    var completion = window.TerminalGridCompletion.attachEditor(input, {
+      menu: completionMenu, sources: completionSources, enabled: completionEnabled, replaceOnly: true, initialQuery: selected,
+      apply: function (value, start, end) { input.setRangeText(value, start, end, 'end'); return true; }
+    });
+    completion.offer(false);
+    return completion;
+  }
   function openPathCommand(state, text, finish, shared) {
     if ($('pathCommandDialog').open) { showToast('請先完成目前參數選擇。'); if (finish) finish(null); return; }
     text = window.TerminalGridDefaults.prepare(text);
@@ -421,6 +449,11 @@
       button.title = item.source || ''; button.addEventListener('click', function () { commit(item.address); }); menu.appendChild(button);
     });
     positionContextMenu(menu, x, y); input.focus(); input.select();
+    var completion = attachReplacementCompletion(input, saved.selected);
+    var observer = new MutationObserver(function () {
+      if (menu.hidden || !menu.contains(input)) { completion.dispose(); observer.disconnect(); }
+    });
+    observer.observe(menu, { attributes: true, attributeFilter: ['hidden'], childList: true });
   }
   function createLineEditor(state, view, tabConfig) {
     var editor = document.createElement('div'); editor.className = 'pane-line-editor';
@@ -434,7 +467,10 @@
     interrupt.title = '中斷目前程式（Ctrl+C）'; interrupt.setAttribute('aria-label', '中斷目前程式');
     editor.append(input, paste, interrupt); state.layer.appendChild(editor);
     state.lineInput = input; state.lineEditorElement = editor; state.lineHistory = []; state.lineHistoryIndex = 0; state.lineDraft = '';
-    state.lineEditor = window.TerminalGridTextEdit.attach(input, { getValues: function () { return capturedValues; }, onStatus: showToast });
+    state.lineEditor = window.TerminalGridTextEdit.attach(input, {
+      getValues: function () { return capturedValues; }, onStatus: showToast, attachReplacementCompletion: attachReplacementCompletion
+    });
+    state.lineCompletion = attachCommandCompletion(input, state.lineEditor);
     input.addEventListener('focus', function () { focusedEditor = { state: state }; });
     function deliver(enter) {
       if (!hostReady || !sameSession(state, state.generation)) { showToast('請先啟動這個終端分頁。'); return; }
@@ -444,7 +480,10 @@
         return;
       }
       if (!value || !validLineText(value)) { showToast('輸入列只接受單行文字，最多 16,000 字元。', true); return; }
-      if (enter) send(withGeneration(state, { type: 'input', data: value + '\r' }));
+      if (enter) {
+        if (!send(withGeneration(state, { type: 'input', data: value + '\r' }))) return;
+        rememberCommand(value);
+      }
       else state.terminal.paste(value);
       if (state.lineHistory[state.lineHistory.length - 1] !== value) state.lineHistory.push(value);
       if (state.lineHistory.length > 50) state.lineHistory.shift();
@@ -483,6 +522,9 @@
   function disposeTerminal(state) {
     if (state.selectionCleanup) state.selectionCleanup();
     if (state.lineEditor) state.lineEditor.dispose();
+    if (state.lineCompletion) state.lineCompletion.dispose();
+    if (state.rawCompletion) completionMenu.close(state.rawCompletion);
+    window.clearTimeout(state.completionTimer);
     try { state.terminal.dispose(); } catch (_) { }
   }
   function makeTerminal(view, slot, tabConfig) {
@@ -508,6 +550,18 @@
       send: function (data) { return send(withGeneration(state, { type: 'input', data: data })); }
     });
     createLineEditor(state, view, tabConfig);
+    state.rawCompletion = { input: terminal.textarea, tabOnly: true,
+      anchor: function () {
+        var rect = terminal.textarea.getBoundingClientRect();
+        return rect.width && rect.height ? rect : mount.querySelector('.terminal-mount').getBoundingClientRect();
+      },
+      apply: function (item, saved) {
+        replaceLiveSelection(state, item.value, Object.assign({}, saved, { start: item.start, end: item.end }));
+      }
+    };
+    terminal.textarea.addEventListener('blur', function () {
+      completionMenu.close(state.rawCompletion); window.clearTimeout(state.completionTimer);
+    });
     terminal.onSelectionChange(function () { updateLiveSelection(state); });
     mount.querySelector('.terminal-mount').addEventListener('mousedown', function (event) {
       if (event.button !== 0) return;
@@ -518,9 +572,30 @@
       state.selectionCleanup = function () { document.removeEventListener('mouseup', finish); state.selectionCleanup = null; };
       document.addEventListener('mouseup', finish);
     });
-    terminal.onData(function (data) { if (state.status === 'running' && hostReady) send(withGeneration(state, { type: 'input', data: data })); });
-    terminal.onResize(function (size) { state.liveReplace.resize(); if (isActive(state) && hostReady) send(withGeneration(state, { type: 'resize', cols: size.cols, rows: size.rows })); });
+    terminal.onData(function (data) {
+      if (state.status !== 'running' || !hostReady) return;
+      var protocol = /^\x1b\[(?:[IO]|\??[0-9;]*[Rc])$/.test(data);
+      if (!protocol) {
+        completionMenu.close(state.rawCompletion); window.clearTimeout(state.completionTimer);
+        state.completionTypingUntil = document.activeElement === terminal.textarea && (/^[^\x00-\x1f\x7f-\x9f]+$/.test(data) || data === '\x7f') ? Date.now() + 500 : 0;
+      }
+      send(withGeneration(state, { type: 'input', data: data }));
+    });
+    terminal.onResize(function (size) {
+      completionMenu.close(state.rawCompletion); state.liveReplace.resize();
+      if (isActive(state) && hostReady) send(withGeneration(state, { type: 'resize', cols: size.cols, rows: size.rows }));
+    });
     terminal.attachCustomKeyEventHandler(function (event) {
+      if (completionMenu.key(event, state.rawCompletion)) return false;
+      if (event.type === 'keydown' && !event.isComposing && event.keyCode !== 229) {
+        if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.code === 'Space' && completionEnabled() && state.status === 'running') {
+          event.preventDefault(); event.stopPropagation(); offerTerminalCompletion(state, true); return false;
+        }
+        if (event.key === 'Enter' && !event.repeat && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey && completionEnabled()) {
+          var command = state.liveReplace.snapshot();
+          if (command) rememberCommand(command.command);
+        }
+      }
       if (event.code === 'ContextMenu' || (event.shiftKey && event.code === 'F10')) {
         event.preventDefault(); event.stopPropagation();
         if (event.type === 'keydown' && !event.repeat) {
@@ -596,6 +671,20 @@
     });
     if (terminal.textarea) terminal.textarea.setAttribute('aria-label', '第 ' + (slot + 1) + ' 格 ' + tabConfig.name + ' 可操作終端');
     return state;
+  }
+  function offerTerminalCompletion(state, explicit) {
+    if (!completionEnabled() || document.activeElement !== state.terminal.textarea || !$('terminalContextMenu').hidden) return;
+    if (state.terminal.buffer.active.viewportY !== state.terminal.buffer.active.baseY) return;
+    var selected = state.terminal.hasSelection();
+    var saved = selected ? state.liveSelection : state.liveReplace.snapshot();
+    if (!saved) {
+      if (explicit) showToast('無法辨識目前指令。可在下方輸入列或指令草稿按 Ctrl+Space。');
+      return;
+    }
+    var context = { value: saved.command, start: selected ? saved.start : saved.cursor, end: selected ? saved.end : saved.cursor };
+    var choices = window.TerminalGridCompletion.suggestions(context, completionSources(), explicit);
+    state.rawCompletion.explicit = explicit;
+    if (!completionMenu.show(state.rawCompletion, saved, choices) && explicit) showToast('目前沒有相符的建議。');
   }
   function createPane(view, index) {
     var element = document.createElement('section'); element.className = 'pane'; element.dataset.slot = index; element.dataset.status = 'idle';
@@ -699,6 +788,7 @@
     appConfig.workspaces.push(created); createView(created); $('workspaceDialog').close(); activateWorkspace(created.id); saveConfig(false);
   }
   function activateWorkspace(id) {
+    completionMenu.close();
     var view = getView(id); if (!view) return;
     if (activeView) activeView.grid.hidden = true;
     activeView = view; activeView.grid.hidden = false; appConfig.activeWorkspaceId = id;
@@ -1136,6 +1226,7 @@
       renderPane(view, state.slot); updateCounts(); showToast(getTabConfig(view.config, state.slot, state.tabId).name + '：' + (message.message || '終端發生錯誤。'), true); return;
     }
     if (message.type === 'started') {
+      completionMenu.close(state.rawCompletion); state.completionTypingUntil = 0;
       if (isStale(state, message, true)) return;
       pruneCaptures(state); resetCaptureScanner(state);
       state.liveReplace.reset(); state.liveSelection = null; state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
@@ -1182,8 +1273,15 @@
         var observation = activeRun && activeRun.output.get(state);
         if (observation && observation.generation === state.generation) observation.buffer.feed(bytes);
         var outputToken = state.liveReplace.output();
+        completionMenu.close(state.rawCompletion);
         state.terminal.write(bytes, function () {
-          if (state.generation === gen) state.liveReplace.parsed(outputToken);
+          if (state.generation === gen) {
+            state.liveReplace.parsed(outputToken);
+            if (state.completionTypingUntil > Date.now() && completionEnabled()) {
+              window.clearTimeout(state.completionTimer);
+              state.completionTimer = window.setTimeout(function () { offerTerminalCompletion(state, false); }, 125);
+            }
+          }
           send({ type: 'ack', workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, bytes: size, generation: gen });
         });
         try { if ($('captureEnabled').checked) state.captureScanner.feed(state.captureDecoder.decode(bytes, { stream: true })); }
@@ -1193,6 +1291,7 @@
       return;
     }
     if (message.type === 'exited') {
+      completionMenu.close(state.rawCompletion); window.clearTimeout(state.completionTimer);
       try { if ($('captureEnabled').checked) { state.captureScanner.feed(state.captureDecoder.decode()); state.captureScanner.flush(); } } catch (_) { resetCaptureScanner(state); }
       state.status = 'exited'; state.pid = null; state.exitCode = typeof message.exitCode === 'number' ? message.exitCode : null;
       state.recording = false; if (logState === state) updateRecording();
@@ -1482,6 +1581,7 @@
     renderFlowOptions(); queueSave();
   }
   function renderCommandLibrary() {
+    completionCatalog = null;
     if (!$('commandPackSelect')) return;
     var select = $('commandPackSelect'), previous = select.value; select.textContent = '';
     allCommandPacks().forEach(function (pack) { select.add(new Option(pack.name, pack.id)); });
@@ -1932,6 +2032,15 @@
     $('toggleTerminalRecording').disabled = logState.status !== 'running';
   }
   function initialize() {
+    completionMenu = window.TerminalGridCompletion.createMenu(document);
+    try { $('smartCompletion').checked = localStorage.getItem('terminalGrid.smartCompletion') !== 'false'; } catch (_) { }
+    $('smartCompletion').addEventListener('change', function () {
+      completionMenu.close();
+      try { localStorage.setItem('terminalGrid.smartCompletion', String(this.checked)); } catch (_) { }
+    });
+    $('clearCompletionHistory').addEventListener('click', function () {
+      completionHistory = []; completionMenu.close(); showToast('已清除本次補全使用的指令歷史。');
+    });
     var historyButton = document.createElement('button');
     historyButton.className = 'button'; historyButton.textContent = '最近格子操作…';
     $('appOptions').querySelector('.app-options-menu').appendChild(historyButton);
@@ -2064,6 +2173,7 @@
     }
     var initial = normalizeAppConfig(null); initial.workspaces.forEach(createView); activateWorkspace(initial.activeWorkspaceId);
     commandDraft = window.TerminalGridDraft.create({ container: $('commandDraftHost'), getValues: function () { return capturedValues; }, onStatus: showToast, onResize: scheduleFit,
+      attachCompletion: attachCommandCompletion, attachReplacementCompletion: attachReplacementCompletion,
       onSend: function (text) {
         var state = draftTarget && draftTarget.state;
         if (!state || getState(state.workspaceId, state.slot, state.tabId) !== state || state.generation !== draftTarget.generation || state.status !== 'running') {
@@ -2170,7 +2280,7 @@
       importDroppedFiles(files.filter(function (f) { return !/\.(bat|cmd)$/i.test(f.name); }));
     }, true);
     document.addEventListener('click', function (event) {
-      if (!event.target.closest('#terminalContextMenu') && !event.target.closest('[data-action="menu"]')) $('terminalContextMenu').hidden = true;
+      if (!event.target.closest('#terminalContextMenu') && !event.target.closest('[data-action="menu"]') && !completionMenu.contains(event.target)) $('terminalContextMenu').hidden = true;
       if (!event.target.closest('#appOptions')) $('appOptions').open = false;
     });
     $('terminalContextMenu').addEventListener('keydown', function (event) {
@@ -2183,6 +2293,7 @@
       buttons[index].focus();
     });
     document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && completionMenu.hasInput(event.target)) return;
       if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.code === 'KeyZ' &&
           !event.target.closest('input, textarea, [contenteditable], .terminal-mount') && !document.querySelector('dialog[open]')) {
         event.preventDefault(); event.stopImmediatePropagation();

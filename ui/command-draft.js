@@ -59,8 +59,10 @@
 
     var editor = root.TerminalGridTextEdit.attach(input, {
       menuId: 'commandDraftValues', menuToggle: valuesButton, getValues: options.getValues, onStatus: status,
+      attachReplacementCompletion: options.attachReplacementCompletion,
       onMenuChange: function (open) { valuesButton.setAttribute('aria-expanded', String(open)); }
     });
+    if (options.attachCompletion) options.attachCompletion(input, editor);
     function updateSendState() {
       sendButton.disabled = busy || !input.value.trim() || !isSingleLine(input.value);
     }

@@ -1,4 +1,11 @@
-# Terminal Grid 3.12.0
+# Terminal Grid 3.13.0
+
+- 智慧指令補全依本次歷史、指令庫與暫存值提供前綴和拼字建議。
+- 輸入列、草稿與終端原位替換支援 Ctrl+Space。框選後只替換選取範圍，保留指令的其他參數。
+- iperf、iperf3、ADB、scrcpy、IPv6 Ping 範本可按 Tab／Shift+Tab 切換欄位。套用建議只編輯文字。
+- 更多選單可關閉智慧建議和清除本次補全歷史。更新保留原本的工作區、設定與流程。
+
+## Terminal Grid 3.12.0
 
 - F8 截取目前終端，填 Excel 工作表、TC、PASS／FAIL 與吞吐量。同名 PNG／Log 顯示可辨識的 iperf 完成證據。
 - 終端 Log 支援完整錄製、近期文字搜尋、標記與清除畫面。流程執行摘要會自動保存，可匯出 .log。

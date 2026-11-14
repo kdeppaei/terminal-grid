@@ -6,7 +6,7 @@
   function create(terminal, options) {
     var revision = 0, pending = 0, waitingEcho = false, epoch = 0, inputRevision = 0, unavailableMessage = '', expectedEdit = null;
     function reset() { revision++; epoch++; pending = 0; waitingEcho = false; expectedEdit = null; }
-    function read() {
+    function read(allowEmpty) {
       unavailableMessage = '';
       var buffer = terminal.buffer.active;
       if (buffer.type !== 'normal' || pending || waitingEcho || !options.isRunning()) return null;
@@ -63,7 +63,7 @@
       var command = text.slice(prefix.length), offset = cursor - prefix.length;
       // Wide BMP characters occupy one shell character. Combining sequences
       // and surrogate pairs have shell-dependent cursor behavior.
-      if (!command || command.length > 16000 || !editableText(command) || offset < 0 || offset > command.length) return null;
+      if ((!command && !allowEmpty) || command.length > 16000 || !editableText(command) || offset < 0 || offset > command.length) return null;
       // mksh can horizontally scroll a long line. A leading prompt confirms
       // the left boundary; the right boundary must also fit on screen.
       if (android && (first !== last || text.length >= points[cursorRow + ':' + (terminal.cols - 2)])) return null;
@@ -83,16 +83,19 @@
       // A rectangular selection can have the same bounds as a much larger
       // contiguous range. Only replace exactly the characters the user selected.
       if (terminal.getSelection() !== screen.command.slice(start, end)) return null;
+      return Object.assign(snapshot(screen), { start: start, end: end, selected: screen.command.slice(start, end) });
+    }
+    function snapshot(screen) {
       return { revision: revision, generation: options.getGeneration(), command: screen.command,
-        cursor: screen.cursor, prefix: screen.prefix, first: screen.first, cols: screen.cols,
-        start: start, end: end, selected: screen.command.slice(start, end) };
+        cursor: screen.cursor, prefix: screen.prefix, first: screen.first, cols: screen.cols };
     }
     function replace(saved, value) {
       if (typeof value !== 'string' || !editableText(value) || value.length > 16000) {
         return { ok: false, message: '多行、控制字元、組合字或表情符號請先在輸入列編輯。' };
       }
-      var current = read();
+      var current = read(true);
       if (!saved || !current || saved.revision !== revision || saved.generation !== options.getGeneration() ||
+          !Number.isInteger(saved.start) || !Number.isInteger(saved.end) || saved.start < 0 || saved.start > saved.end || saved.end > current.command.length ||
           ['command', 'cursor', 'prefix', 'first', 'cols'].some(function (key) { return saved[key] !== current[key]; })) {
         return { ok: false, message: unavailableMessage || '目前指令或游標已變更，請重新框選要替換的文字。' };
       }
@@ -111,6 +114,7 @@
       return { ok: true, command: current.command.slice(0, saved.start) + value + current.command.slice(saved.end) };
     }
     return { capture: capture, replace: replace, reset: reset,
+      snapshot: function () { var screen = read(true); return screen ? snapshot(screen) : null; },
       navigation: function (event) {
         var current = read();
         if (!current || !current.android) return null;
