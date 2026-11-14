@@ -70,12 +70,22 @@ class AdbFilesTests {
         // exception resources before checking for growth across batches.
         readBatch();
         using (var self = Process.GetCurrentProcess()) {
-            GC.Collect(); GC.WaitForPendingFinalizers();
-            self.Refresh(); int handles = self.HandleCount;
+            Func<int> countHandles = () => {
+                GC.Collect(); GC.WaitForPendingFinalizers();
+                self.Refresh();
+                return self.HandleCount;
+            };
+            int baseline = countHandles();
             readBatch();
             readBatch();
-            GC.Collect(); GC.WaitForPendingFinalizers();
-            self.Refresh(); Check(self.HandleCount <= handles + 4, "pipe handles released after reads and failed launches: " + handles + " -> " + self.HandleCount);
+            int midpoint = countHandles();
+            readBatch();
+            readBatch();
+            int final = countHandles();
+            // .NET can retain a few process-wide handles as worker threads
+            // start. Look for sustained growth over two equal work periods.
+            Check(final <= midpoint + 4 && final <= baseline + 12,
+                "pipe handles released after reads and failed launches: " + baseline + " -> " + midpoint + " -> " + final);
         }
         Console.WriteLine("ADB files: " + count + " checks passed; fixture subprocesses only, no physical device."); return 0;
     }
