@@ -109,7 +109,10 @@ namespace TerminalGridIntegrated
         public string text { get; set; }
         public int delayMs { get; set; }
         public bool enter { get; set; }
-        public FlowStepConfig() { action = "send"; slot = 0; tabId = ""; text = ""; delayMs = 500; enter = true; }
+        public int timeoutMs { get; set; }
+        public int retries { get; set; }
+        public string failureText { get; set; }
+        public FlowStepConfig() { action = "send"; slot = 0; tabId = ""; text = ""; delayMs = 500; enter = true; timeoutMs = 10000; failureText = ""; }
     }
     public sealed class AutomationConfig
     {
@@ -171,11 +174,14 @@ namespace TerminalGridIntegrated
                 flow.steps = flow.steps.Take(100).Where(step => step != null).ToList();
                 foreach (FlowStepConfig step in flow.steps)
                 {
-                    if (step.action != "start" && step.action != "send" && step.action != "wait" && step.action != "pause" && step.action != "stop") step.action = "send";
+                    if (step.action != "start" && step.action != "send" && step.action != "wait" && step.action != "pause" && step.action != "stop" && step.action != "output" && step.action != "exit") step.action = "send";
                     step.slot = Math.Max(0, Math.Min(15, step.slot));
                     step.tabId = Limit(step.tabId, 64);
                     step.delayMs = Math.Max(100, Math.Min(30000, step.delayMs));
                     step.text = Limit(step.text, 16000);
+                    step.timeoutMs = Math.Max(100, Math.Min(600000, step.timeoutMs));
+                    step.retries = Math.Max(0, Math.Min(5, step.retries));
+                    step.failureText = Limit(step.failureText, 512);
                 }
             }
             if (value.commandPacks == null) value.commandPacks = new List<CommandPackConfig>();

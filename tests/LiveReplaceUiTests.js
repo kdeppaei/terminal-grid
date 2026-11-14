@@ -114,6 +114,12 @@ async function main() {
     pass('wide Chinese characters in CMD path do not shift replacement coordinates');
     await paint('000111000', 'PS C:\\test> '); await select(); await editor.fill('222'); await pane.locator('.line-send').first().click(); await expectInput([keys('222')]);
     pass('PowerShell standard prompt supports the same edit');
+    await paint('echo 000111000', 'samsung:/ $ ');
+    await select('111'); await editor.fill('測試'); await pane.locator('.line-send').first().click();
+    await expectInput([keys('測試')]);
+    await paint('echo 中文', 'samsung:/ $ ');
+    await raw.focus(); await page.keyboard.press('Home'); await expectInput(['\x01']);
+    pass('recognizable Android prompt supports wide replacements and Home navigation');
     await paint();
     await emit({ type: 'output', data: Buffer.from('\x1b[2J\x1b[HPS C:\\test>000111000\x1b[2m\x1b[3mGHOST\x1b[0m' + '\x1b[D'.repeat(5)).toString('base64') });
     await page.waitForTimeout(150); await page.evaluate(() => { window.fixture.messages = []; });

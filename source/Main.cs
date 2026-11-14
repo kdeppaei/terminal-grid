@@ -2,10 +2,12 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -14,7 +16,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.11.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.12.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -28,6 +30,8 @@ namespace TerminalGridIntegrated
         bool closing, closeApproved, ready, folderPickerOpen;
         string loadWarning = "";
         DeviceFilesForm deviceFiles;
+        Bitmap evidenceImage;
+        string evidenceId;
 
         public TerminalForm()
         {
@@ -42,7 +46,11 @@ namespace TerminalGridIntegrated
             outputTimer.Tick += delegate { FlushAll(); };
             Shown += async delegate { await InitializeBrowser(); };
             FormClosing += OnClosing;
-            FormClosed += delegate { outputTimer.Dispose(); };
+            FormClosed += delegate {
+                outputTimer.Dispose();
+                if (evidenceImage != null) evidenceImage.Dispose();
+                foreach (var pane in panes.Values) EndRecording(pane);
+            };
         }
         async Task InitializeBrowser()
         {
@@ -149,7 +157,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.11.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.12.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -220,6 +228,10 @@ namespace TerminalGridIntegrated
                 if (type == "deviceFilesOpen") { Ui(delegate { if (deviceFiles == null || deviceFiles.IsDisposed) deviceFiles = new DeviceFilesForm(); if (!deviceFiles.Visible) deviceFiles.Show(this); deviceFiles.Activate(); }); return; }
                 if (type == "flowOpen") { Ui(OpenFlow); return; }
                 if (type == "flowSave") { Ui(delegate { SaveFlow(StringValue(message, "text")); }); return; }
+                if (type == "runSave") { SaveRun(StringValue(message, "runId"), StringValue(message, "text")); return; }
+                if (type == "exportLog") { Ui(delegate { ExportLog(StringValue(message, "text")); }); return; }
+                if (type == "captureEvidence") { CaptureEvidence(message); return; }
+                if (type == "saveEvidence") { SaveEvidence(message); return; }
                 if (type == "commandPackOpen") { Ui(OpenCommandPack); return; }
                 if (type == "commandPackSave") { Ui(delegate { SaveCommandPack(StringValue(message, "text")); }); return; }
                 int index = IntValue(message, "slot", -1);
@@ -244,7 +256,14 @@ namespace TerminalGridIntegrated
                 else {
                     pane = GetPane(workspaceId, index, tabId);
                     if (pane != null && routeId.Length > 0) {
-                        if (pane.RouteId != null && pane.RouteId != routeId) return;
+                        if (pane.RouteId != null && pane.RouteId != routeId) {
+                            bool start = type == "start" || type == "restart";
+                            if (!start) return;
+                            if (pane.Session != null || pane.Starting || pane.Stopping) {
+                                Error(workspaceId, index, tabId, "舊分頁仍在結束，請稍後啟動。", pane.Generation);
+                                return;
+                            }
+                        }
                         pane.RouteId = routeId;
                     }
                 }
@@ -254,13 +273,17 @@ namespace TerminalGridIntegrated
                     string requestId = StringValue(message, "requestId");
                     if (requestId.Length > 100 || targetWorkspace == null) return;
                     string cwd = targetWorkspace.slots[index].tabs.First(t => t.id == tabId).cwd;
+                    string pathFolder = StringValue(message, "paths") == "True"
+                        ? (String.IsNullOrWhiteSpace(cwd) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : cwd)
+                        : null;
+                    bool android = StringValue(message, "android") == "True";
                     string toolsFolder = StringValue(message, "toolsFolder");
                     if (toolsFolder.Length <= 4096 && Directory.Exists(toolsFolder)) cwd = toolsFolder;
                     if (targetDiscoveryBusy) { Send(new { type = "commandTargets", requestId = requestId, candidates = new TargetCandidate[0], message = "另一個偵測正在進行，請稍後重新偵測。" }); return; }
                     targetDiscoveryBusy = true;
                     Task.Run(delegate {
                         TargetDiscoveryResult result;
-                        try { result = TargetDiscovery.Discover(cwd); } catch (Exception) { result = new TargetDiscoveryResult { message = "偵測失敗，可重新偵測或手動輸入。" }; }
+                        try { result = TargetDiscovery.Discover(cwd, android, pathFolder); } catch (Exception) { result = new TargetDiscoveryResult { message = "偵測失敗，可重新偵測或手動輸入。" }; }
                         Ui(delegate { targetDiscoveryBusy = false; Send(new { type = "commandTargets", requestId = requestId, candidates = result.candidates, message = result.message }); });
                     }); return;
                 }
@@ -272,6 +295,26 @@ namespace TerminalGridIntegrated
                     var temp = LayoutConfig.Normalize(new LayoutConfig { slots = new List<PaneConfig> { paneConfig } }); paneConfig = temp.slots[0];
                     int cols = Clamp(IntValue(message, "cols", 80), 2, 500), rows = Clamp(IntValue(message, "rows", 24), 1, 300);
                     if (type == "restart") RestartSlot(workspaceId, index, tabId, paneConfig, cols, rows); else StartSlot(workspaceId, index, tabId, paneConfig, cols, rows);
+                }
+                else if (type == "recordStart" || type == "recordStop")
+                {
+                    string error = null;
+                    try
+                    {
+                        if (type == "recordStart")
+                        {
+                            if (pane.Session == null || pane.Starting || pane.Stopping) throw new InvalidOperationException("請先啟動終端。");
+                            if (pane.Recording == null)
+                            {
+                                string path = Path.Combine(OutputFolder("terminal-logs"), DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".log");
+                                pane.Recording = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+                                pane.RecordingPath = path;
+                            }
+                        }
+                        else EndRecording(pane);
+                    }
+                    catch (Exception ex) { error = "錄製失敗：" + ex.Message; }
+                    SendRecording(pane, error);
                 }
                 else if (type == "ack")
                 {
@@ -293,6 +336,18 @@ namespace TerminalGridIntegrated
             catch (Exception ex) { Status("操作未完成：" + ex.Message); }
         }
         bool targetDiscoveryBusy;
+        void SendRecording(PaneState pane, string error)
+        {
+            Send(new { type = "recording", workspaceId = pane.WorkspaceId, slot = pane.Slot, tabId = pane.TabId, generation = pane.Generation,
+                path = pane.RecordingPath, recording = pane.Recording != null, error = error });
+        }
+        void EndRecording(PaneState pane)
+        {
+            if (pane.Recording == null) return;
+            try { pane.Recording.Dispose(); }
+            catch (IOException ex) { Status("錄製 Log 寫入失敗：" + ex.Message); }
+            finally { pane.Recording = null; }
+        }
         void SendBatchFiles(string requestId, string[] paths)
         {
             if (paths == null || paths.Length == 0 || paths.Length > 8) throw new ArgumentException("每次最多執行 8 個批次檔。");
@@ -408,6 +463,7 @@ namespace TerminalGridIntegrated
             }
             if (closing || pane.Generation != generation) return;
             pane.Session = null; pane.Stopping = false;
+            if (pane.Recording != null) { EndRecording(pane); SendRecording(pane, null); }
             if (!pane.ExitSent)
             {
                 Send(new { type = "exited", workspaceId = workspaceId, slot = index, tabId = tabId, exitCode = pane.ExitCode ?? -1, generation = generation }); pane.ExitSent = true;
@@ -433,6 +489,11 @@ namespace TerminalGridIntegrated
             {
                 while (count < budget && pane.Output.TryTake(out data))
                 {
+                    if (pane.Recording != null)
+                    {
+                        try { pane.Recording.Write(data, 0, data.Length); }
+                        catch (IOException ex) { EndRecording(pane); SendRecording(pane, "錄製 Log 寫入失敗：" + ex.Message); }
+                    }
                     buffer.Write(data, 0, data.Length); count += data.Length;
                     if (buffer.Length >= 32768)
                     {
@@ -448,6 +509,7 @@ namespace TerminalGridIntegrated
             }
             if (pane.ExitCode.HasValue && pane.Output.Count == 0 && pane.InFlight == 0 && !pane.ExitSent && !pane.Stopping)
             {
+                if (pane.Recording != null) { EndRecording(pane); SendRecording(pane, null); }
                 Send(new { type = "exited", workspaceId = workspaceId, slot = index, tabId = pane.TabId, exitCode = pane.ExitCode.Value, generation = pane.Generation });
                 pane.ExitSent = true; PtySession finished = pane.Session; pane.Session = null;
                 if (finished != null) Task.Run((Action)finished.Dispose);
@@ -482,6 +544,111 @@ namespace TerminalGridIntegrated
                         Status("配置已匯入；執行中的終端繼續保留，啟動指令在下次啟動該格時才會執行。");
                     }
                     catch (Exception ex) { Status("匯入失敗：" + ex.Message); }
+        }
+        static string OutputFolder(string name)
+        {
+            string path = Path.Combine(ConfigStore.DataFolder, name);
+            Directory.CreateDirectory(path);
+            return path;
+        }
+        void SaveRun(string id, string text)
+        {
+            if (!Regex.IsMatch(id, @"\Arun-[a-z0-9-]{1,70}\z") || Encoding.UTF8.GetByteCount(text) > 8 * 1024 * 1024) return;
+            try
+            {
+                string path = Path.Combine(OutputFolder("runs"), id + ".log");
+                string temporary = path + ".tmp";
+                File.WriteAllText(temporary, text, new UTF8Encoding(false));
+                if (File.Exists(path)) File.Replace(temporary, path, null);
+                else File.Move(temporary, path);
+                Send(new { type = "runFile", runId = id, path = path });
+            }
+            catch (Exception ex) { Send(new { type = "runFile", runId = id, error = "流程 Log 儲存失敗：" + ex.Message }); }
+        }
+        void ExportLog(string text)
+        {
+            if (Encoding.UTF8.GetByteCount(text) > 8 * 1024 * 1024) return;
+            using (var dialog = new SaveFileDialog { Filter = "文字 Log (*.log)|*.log", FileName = "terminal-grid.log", DefaultExt = "log", AddExtension = true })
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                    try { File.WriteAllText(dialog.FileName, text, new UTF8Encoding(false)); Status("Log 已匯出：" + dialog.FileName); }
+                    catch (Exception ex) { Send(new { type = "fileError", message = "Log 匯出失敗：" + ex.Message }); }
+        }
+        static double CaptureCoordinate(IDictionary<string, object> message, string key)
+        {
+            object value;
+            return message.TryGetValue(key, out value) ? Convert.ToDouble(value) : 0;
+        }
+        async void CaptureEvidence(IDictionary<string, object> message)
+        {
+            string id = StringValue(message, "requestId");
+            try
+            {
+                using (var stream = new MemoryStream())
+                {
+                    await browser.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
+                    stream.Position = 0;
+                    using (var image = new Bitmap(stream))
+                    {
+                        var area = Rectangle.Intersect(new Rectangle(Point.Empty, image.Size),
+                            Rectangle.FromLTRB((int)(CaptureCoordinate(message, "x") * image.Width), (int)(CaptureCoordinate(message, "y") * image.Height),
+                            (int)((CaptureCoordinate(message, "x") + CaptureCoordinate(message, "w")) * image.Width),
+                            (int)((CaptureCoordinate(message, "y") + CaptureCoordinate(message, "h")) * image.Height)));
+                        if (area.Width < 10 || area.Height < 10) throw new ArgumentException("請先選取畫面上的終端。");
+                        if (evidenceImage != null) evidenceImage.Dispose();
+                        evidenceImage = image.Clone(area, PixelFormat.Format32bppArgb);
+                        evidenceId = id;
+                    }
+                }
+                Send(new { type = "evidenceReady", requestId = id });
+            }
+            catch (Exception ex) { Send(new { type = "evidenceReady", requestId = id, error = "截圖失敗：" + ex.Message }); }
+        }
+        void SaveEvidence(IDictionary<string, object> message)
+        {
+            if (evidenceImage == null || evidenceId != StringValue(message, "requestId")) return;
+            string sheet = StringValue(message, "sheet"), tc = StringValue(message, "tc"), result = StringValue(message, "result");
+            string rate = StringValue(message, "rate"), status = StringValue(message, "status"), text = StringValue(message, "text");
+            if (sheet.Length > 100 || tc.Length > 100 || rate.Length > 100 || status.Length > 300 || text.Length > 600000) return;
+            if (result != "PASS" && result != "FAIL") result = "待確認";
+            string time = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz");
+            string heading = "Excel：" + sheet + "    TC：" + tc;
+            string metrics = result + "    吞吐量：" + (rate.Length == 0 ? "待確認" : rate);
+            string stem = null;
+            try
+            {
+                string safeTc = Regex.Replace(tc, @"[^\p{L}\p{N}_-]", "_");
+                stem = Path.Combine(OutputFolder("evidence"), DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-" + safeTc + "-" + Guid.NewGuid().ToString("N").Substring(0, 6));
+                int width = Math.Max(720, evidenceImage.Width);
+                using (var font = new Font("Microsoft JhengHei", 13, FontStyle.Bold, GraphicsUnit.Pixel))
+                using (var meta = new Font("Microsoft JhengHei", 12, GraphicsUnit.Pixel))
+                using (var brush = new SolidBrush(result == "PASS" ? Color.LightGreen : result == "FAIL" ? Color.Salmon : Color.Khaki))
+                {
+                    int h1, h2, h3;
+                    using (var measurement = Graphics.FromImage(evidenceImage))
+                    {
+                        h1 = (int)Math.Ceiling(measurement.MeasureString(heading, font, width - 32).Height);
+                        h2 = (int)Math.Ceiling(measurement.MeasureString(metrics, font, width - 32).Height);
+                        h3 = (int)Math.Ceiling(measurement.MeasureString(time + "    " + status, meta, width - 32).Height);
+                    }
+                    int header = h1 + h2 + h3 + 36;
+                    using (var image = new Bitmap(width, header + evidenceImage.Height))
+                    {
+                        using (var graphics = Graphics.FromImage(image))
+                        {
+                            graphics.Clear(Color.FromArgb(13, 19, 29));
+                            graphics.DrawString(heading, font, Brushes.White, new RectangleF(16, 10, width - 32, h1));
+                            graphics.DrawString(metrics, font, brush, new RectangleF(16, 16 + h1, width - 32, h2));
+                            graphics.DrawString(time + "    " + status, meta, Brushes.LightGray, new RectangleF(16, 22 + h1 + h2, width - 32, h3));
+                            graphics.DrawImageUnscaled(evidenceImage, 0, header);
+                        }
+                        image.Save(stem + ".png", ImageFormat.Png);
+                    }
+                }
+                File.WriteAllText(stem + ".log", time + "\r\n" + heading + "\r\n" + metrics + "\r\n" + status + "\r\n\r\n" + text, new UTF8Encoding(false));
+                Send(new { type = "evidenceSaved", path = stem + ".png" });
+            }
+            catch (Exception ex) { Send(new { type = "fileError", message = "證據匯出失敗：" + ex.Message + (stem == null ? "" : "。請檢查：" + stem) }); }
+            finally { evidenceImage.Dispose(); evidenceImage = null; evidenceId = null; }
         }
         void OpenFlow()
         {

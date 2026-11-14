@@ -149,7 +149,8 @@ async function main() {
     await page.locator('#pathCommandForm button[type="submit"]').click(); await reset(); await page.locator('#confirmAccept').click();
     await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'input'));
     assert.deepEqual((await inputs()).map(m => m.data), ['scrcpy -s "FLOW_DEVICE2" --max-fps=30\r']);
-    await page.locator('#flowDialog [data-close]').first().click();
+    await page.locator('#flowDialog').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 流程完成')));
     pass('automation resolves parameters before execution preview; cancel sends nothing and preserves saved template');
     await page.locator('#appOptions summary').click(); await page.locator('#showLineEditors').uncheck();
     assert.equal(await pane.locator('.pane-line-editor:visible').count(), 0);
@@ -282,7 +283,7 @@ async function main() {
     await page.locator('#saveFlowFileButton').click();
     const nanFile = await page.evaluate(() => JSON.parse(window.fixture.messages.filter(m => m.type === 'flowSave').pop().text));
     assert.equal(nanFile.workspace.slots[5].tabs.length, 2);
-    assert.match(nanFile.workspace.slots[3].tabs[0].args, /--if1 "aware_data1" --if2 "aware_data0"/);
+    assert.match(nanFile.workspace.slots[3].tabs[0].args, /--if1 "aware_data1" --if2 "auto"/);
     assert.equal(nanFile.steps.filter(s => s.action === 'pause').length, 2);
     assert.deepEqual(nanFile.steps.slice(0, 3).map(s => s.action), ['stop', 'stop', 'stop']);
     await page.evaluate(() => {
@@ -299,6 +300,28 @@ async function main() {
     await page.locator('#continuePausedFlowButton').click();
     await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'start' && m.slot === 4));
     pass('NAN wizard creates exportable six-cell workflow; manual NDP/server pauses gate ping and traffic with correct DUT mapping');
+    const traffic = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'start' && m.slot === 4));
+    await emit({ type: 'exited', workspaceId: traffic.workspaceId, slot: 4, tabId: traffic.tabId, generation: 1, exitCode: 0 });
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 流程完成')));
+
+    const config = { workspaces: [{ id: 'conditions', name: 'Conditions', rows: 1, cols: 1,
+      slots: [{ tabs: [{ id: 'check', name: 'Check', shell: 'CMD' }] }] }],
+      automations: [{ id: 'condition', workspaceId: 'conditions', name: 'Output check', steps: [
+        { action: 'start', slot: 0, tabId: 'check', delayMs: 100 },
+        { action: 'send', slot: 0, tabId: 'check', text: 'echo probe', delayMs: 100 },
+        { action: 'output', slot: 0, tabId: 'check', text: 'NAN started', failureText: 'NDP lost', timeoutMs: 300, retries: 1 },
+        { action: 'send', slot: 0, tabId: 'check', text: 'echo reached' }
+      ] }] };
+    await emit({ type: 'init', config });
+    await reset(); await page.locator('#flowButton').click();
+    await page.locator('#runFlowButton').click(); await page.locator('#confirmAccept').click();
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'input' && m.data === 'echo probe\r'));
+    await emit({ type: 'output', workspaceId: 'conditions', slot: 0, tabId: 'check', generation: 1, data: Buffer.from('NDP lost\r\n').toString('base64') });
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 第 3 步') && m.text.includes('NDP lost')));
+    assert.deepEqual((await inputs()).map(m => m.data), ['echo probe\r']);
+    await page.locator('#flowButton').click();
+    assert.equal(await page.locator('.flow-failed').getAttribute('data-step'), '3');
+    pass('failure condition persists a run log, identifies step three and prevents later input');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

@@ -15,12 +15,15 @@
   var batchRequests = {};
   var transferPending = null, paneClipboard = null, paneDrag = null;
   var paneDragType = 'application/x-terminalgrid-pane';
+  var activeRun = null, lastRun = null, failedFlowStep = null;
+  var evidence = null, logState = null;
+  var paneHistory = [], selectedPanes = new Map();
   function discoverNanDevices() {
     if (!hostReady || !activeView) return;
     var state = focused ? focused.state : activeState(activeView, 0);
     nanDiscoveryId = uid('nan-devices');
     $('nanStatus').textContent = '正在偵測已授權的 ADB 手機…';
-    send({ type: 'discoverCommandTargets', requestId: nanDiscoveryId, workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, toolsFolder: $('nanFolder').value });
+    send({ type: 'discoverCommandTargets', requestId: nanDiscoveryId, workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, toolsFolder: $('nanFolder').value, android: true });
   }
   function openNanDialog() {
     if (flowRunning || flowPreparing) { showToast('請先完成或停止目前流程。'); return; }
@@ -32,10 +35,32 @@
       var key = select.dataset.targetKey, kind = window.TerminalGridDefaults.fields[key][1];
       select.textContent = ''; select.add(new Option('選擇偵測結果，或在下方手動輸入', ''));
       var seen = new Set();
-      targetCandidates.concat(capturedValues.map(function (v) { return { value: v.address, label: '暫存 · ' + v.address, kind: 'saved' }; })).forEach(function (candidate) {
+      var candidates = targetCandidates.concat(capturedValues.map(function (v) { return { value: v.address, label: '暫存 · ' + v.address, kind: 'saved' }; }));
+      var aware = targetCandidates.filter(function (c) { return c.kind === 'android' && /^aware[_-]data\d+$/i.test(c.interfaceName); });
+      if (kind === 'scope') candidates = aware.map(function (c) { return { value: '%' + c.interfaceName, label: c.serial + ' · %' + c.interfaceName }; });
+      if (kind === 'interface') {
+        var selectedDevice = $('pathCommandFields').querySelector('[data-path-key="SERIAL"]');
+        candidates = aware.filter(function (c) { return !selectedDevice || !selectedDevice.value || c.serial === selectedDevice.value; })
+          .map(function (c) { return { value: c.interfaceName, label: c.serial + ' · ' + c.interfaceName }; });
+      }
+      if (kind === 'aware') {
+        // Sender scope belongs to the selected DUT2, not to the target IP owner.
+        var serial = $('pathCommandFields').querySelector('[data-path-key="SERIAL"]');
+        var scopes = Array.from(new Set(aware.filter(function (c) { return serial && serial.value === c.serial; }).map(function (c) { return c.interfaceName; })));
+        candidates = scopes.length === 1 ? aware.filter(function (c) {
+          return c.serial !== serial.value && window.TerminalGridIPv6.isIPv6(c.value);
+        }).map(function (c) { return { value: c.value + '%' + scopes[0], label: c.label + ' → %' + scopes[0] }; }) : [];
+      }
+      candidates.forEach(function (candidate) {
         var value = candidate.value, ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) && value.split('.').every(function (n) { return Number(n) <= 255; });
         var ipv6 = window.TerminalGridIPv6.isIPv6(value);
-        if (kind === 'device' ? candidate.kind !== 'device' : (!ipv4 && !ipv6) || (kind === 'local' || kind === 'local4') && candidate.kind !== 'local' || (kind === 'ipv4' || kind === 'local4') && !ipv4 || kind === 'ipv6' && !ipv6) return;
+        if (kind === 'device' && candidate.kind !== 'device') return;
+        if (kind === 'source' && !['file', 'folder', 'apk'].includes(candidate.kind)) return;
+        if (['apk', 'folder'].includes(kind) && candidate.kind !== kind) return;
+        if (['ip', 'ipv4', 'ipv6', 'local', 'local4'].includes(kind) &&
+            ((!ipv4 && !ipv6) || (kind === 'local' || kind === 'local4') && candidate.kind !== 'local' ||
+            (kind === 'ipv4' || kind === 'local4') && !ipv4 || kind === 'ipv6' && !ipv6 ||
+            candidate.kind === 'android' && /^fe[89ab]/i.test(value))) return;
         if (seen.has(value)) return; seen.add(value); select.add(new Option(candidate.label, value));
       });
     });
@@ -44,22 +69,25 @@
     var target = pathCommandTarget; if (!target) return;
     var id = uid('targets'); targetDiscoveryRequest = { id: id, target: target };
     $('targetDiscoveryStatus').textContent = '正在讀取本機網卡與 adb devices -l…';
-    if (!send({ type: 'discoverCommandTargets', requestId: id, workspaceId: target.state.workspaceId, slot: target.state.slot, tabId: target.state.tabId })) $('targetDiscoveryStatus').textContent = '偵測尚未就緒，可手動輸入。';
+    if (!send({ type: 'discoverCommandTargets', requestId: id, workspaceId: target.state.workspaceId, slot: target.state.slot, tabId: target.state.tabId, android: true, paths: true })) $('targetDiscoveryStatus').textContent = '偵測尚未就緒，可手動輸入。';
   }
   function allCommandPacks() { return window.TerminalGridDefaults.packs.concat(appConfig.commandPacks); }
-  function openPathCommand(state, text, finish) {
+  function openPathCommand(state, text, finish, shared) {
     if ($('pathCommandDialog').open) { showToast('請先完成目前參數選擇。'); if (finish) finish(null); return; }
     text = window.TerminalGridDefaults.prepare(text);
-    pathCommandTarget = { state: state, generation: state.generation, text: text, id: uid('path-command'), finish: finish };
+    pathCommandTarget = { state: state, generation: state.generation, text: text, id: uid('path-command'), finish: finish, shared: shared,
+      replace: !!(state.terminal.hasSelection() || state.liveIntent), selection: state.liveSelection };
     targetCandidates = [];
     var fields = $('pathCommandFields'); fields.textContent = '';
+    $('shareFlowParamsLabel').hidden = !shared; $('shareFlowParams').checked = !!shared;
     window.TerminalGridDefaults.keys(text).forEach(function (key) {
       var spec = window.TerminalGridDefaults.fields[key], label = document.createElement('label'); label.className = 'field'; label.textContent = spec[0];
       var row = document.createElement('div'); row.className = 'folder-input-row';
-      var input = document.createElement('input'); input.dataset.pathKey = key; input.required = true; input.value = spec[2]; input.setAttribute('aria-label', spec[0]); row.appendChild(input);
-      if (['device', 'ip', 'ipv4', 'ipv6', 'local', 'local4'].indexOf(spec[1]) >= 0) {
+      var input = document.createElement('input'); input.dataset.pathKey = key; input.required = true; input.value = shared && shared[key] || spec[2]; input.setAttribute('aria-label', spec[0]); row.appendChild(input);
+      if (key === 'SERIAL') input.addEventListener('change', refreshTargetOptions);
+      if (spec[1] !== 'text') {
         var select = document.createElement('select'); select.dataset.targetKey = key; select.setAttribute('aria-label', spec[0] + '偵測結果');
-        select.addEventListener('change', function () { if (this.value) input.value = this.value; }); label.appendChild(select);
+        select.addEventListener('change', function () { if (this.value) { input.value = this.value; if (key === 'SERIAL') refreshTargetOptions(); } }); label.appendChild(select);
       }
       if (['source', 'folder', 'apk'].indexOf(spec[1]) >= 0) (spec[1] === 'source' ? ['file', 'folder'] : [spec[1]]).forEach(function (kind) {
         var button = document.createElement('button'); button.type = 'button'; button.className = 'button'; button.textContent = kind === 'folder' ? '選資料夾…' : '選檔案…';
@@ -140,9 +168,10 @@
         workspaceId: str(f.workspaceId, 64) || activeId,
         steps: (Array.isArray(f.steps) ? f.steps : []).slice(0, 100).map(function (step) {
           step = step || {};
-          return { action: ['start', 'send', 'wait', 'pause', 'stop'].indexOf(step.action) >= 0 ? step.action : 'send',
+          return { action: ['start', 'send', 'wait', 'pause', 'stop', 'output', 'exit'].indexOf(step.action) >= 0 ? step.action : 'send',
             slot: limitNumber(step.slot, 0, 0, 15), tabId: str(step.tabId, 64), text: str(step.text, 16000),
-            delayMs: limitNumber(step.delayMs, 500, 100, 30000), enter: step.enter !== false };
+            delayMs: limitNumber(step.delayMs, 500, 100, 30000), enter: step.enter !== false,
+            timeoutMs: limitNumber(step.timeoutMs || 10000, 10000, 100, 600000), retries: limitNumber(step.retries, 0, 0, 5), failureText: str(step.failureText, 512) };
         }) };
     }).filter(function (f) { return workspaces.some(function (w) { return w.id === f.workspaceId; }); }) : [];
     var packs = Array.isArray(raw.commandPacks) ? raw.commandPacks.slice(0, 32).map(function (p) {
@@ -184,6 +213,15 @@
     if (routed) message.routeId = routed.routeId;
     if (message.type === 'input') {
       var target = getState(message.workspaceId, message.slot, message.tabId);
+      if (target) {
+        if (message.data === '\x03' && target.iperfOutput) target.iperfOutput.feed(new TextEncoder().encode('\r\n^C\r\n'));
+        target.pendingCommand = (target.pendingCommand || '') + message.data;
+        if (/[\r\n]/.test(message.data)) {
+          if (/\biperf3?(?:\.exe)?"?\s[^\r\n]*\s?-c\s/i.test(target.pendingCommand))
+            target.iperfOutput = window.TerminalGridFlowOutput.create();
+          target.pendingCommand = '';
+        } else if (target.pendingCommand.length > 16000 || message.data === '\x03') target.pendingCommand = '';
+      }
       if (target && target.liveReplace && !/^\x1b\[(?:[IO]|\??[0-9;]*[Rc])$/.test(message.data)) { target.liveReplace.input(message.data); target.liveIntent = false; }
     }
     try { host.postMessage(message); return true; }
@@ -212,6 +250,9 @@
     $('capturePanel').hidden = !open; $('captureButton').setAttribute('aria-expanded', String(open)); scheduleFit();
   }
   function resetCaptureScanner(state) {
+    state.transcript = window.TerminalGridFlowOutput.create();
+    state.iperfOutput = null; state.pendingCommand = '';
+    state.logMarkers = [];
     state.captureDecoder = new TextDecoder('utf-8');
     state.captureScanner = window.TerminalGridIPv6.createScanner(function (entry) { recordCapture(state, entry); });
   }
@@ -507,6 +548,15 @@
         if (event.type === 'keydown') replaceLiveSelection(state, event.key);
         return false;
       }
+      if (event.type === 'keydown' && !event.shiftKey && !event.altKey && !event.metaKey &&
+          ['Home', 'End', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        var navigation = state.liveReplace.navigation(event);
+        if (navigation) {
+          event.preventDefault(); event.stopPropagation();
+          state.terminal.clearSelection(); send(withGeneration(state, { type: 'input', data: navigation }));
+          return false;
+        }
+      }
       return true;
     });
     mount.querySelector('.terminal-mount').addEventListener('paste', function (event) {
@@ -752,12 +802,14 @@
     if (!state || isBusy(state) || transferPending) { showToast('請等目前操作完成。'); return; }
     askConfirmation('移除終端分頁？', '「' + (getTabConfig(view.config, slot, tabId).name) + '」中的執行中程序也會結束。', '移除分頁').then(function (accepted) {
       if (!accepted) return;
+      var before = JSON.parse(JSON.stringify(appConfig));
       if (isActive(state)) send(withGeneration(state, { type: 'stop' }));
       pruneCaptures(state); disposeTerminal(state); state.layer.remove();
       cell.tabs = cell.tabs.filter(function (s) { return s !== state; });
       cell.config.tabs = cell.config.tabs.filter(function (t) { return t.id !== tabId; });
       if (!cell.config.tabs.length) { var empty = defaultTab(0, uid('tab')); cell.config.tabs.push(empty); makeTerminal(view, slot, empty); }
       if (cell.config.activeTabId === tabId) cell.config.activeTabId = cell.config.tabs[0].id;
+      rememberPaneAction('關閉分頁', before, appConfig, [], stateAddress(state), [{ workspaceId: view.config.id, slot: slot }]);
       renderPane(view, slot); if (focused && focused.state === state) markFocused(view, slot, cell.config.activeTabId); queueSave(); updateCounts();
     });
   }
@@ -986,21 +1038,47 @@
     return allowNew ? message.generation < state.generation : message.generation !== state.generation;
   }
   function handleHostMessage(message) {
+    if (!message || typeof message !== 'object' || typeof message.type !== 'string') return;
+    if (message.type === 'runFile') {
+      if (message.error) showToast(message.error, true);
+      else {
+        if (lastRun && lastRun.id === message.runId) lastRun.path = message.path;
+        if (activeRun && activeRun.id === message.runId) activeRun.path = message.path;
+        $('flowLogPath').textContent = message.path;
+      }
+      return;
+    }
+    if (message.type === 'evidenceReady') {
+      if (!evidence || evidence.id !== message.requestId) return;
+      if (message.error) { evidence = null; showToast(message.error, true); return; }
+      $('evidenceStatus').textContent = evidence.status;
+      $('saveEvidenceButton').disabled = false;
+      $('evidenceDialog').showModal();
+      return;
+    }
+    if (message.type === 'evidenceSaved') { showToast('PNG 與同名 Log 已儲存：' + message.path); return; }
     if (message.type === 'relocated') {
       if (!transferPending || message.requestId !== transferPending.id) return;
       var transfer = transferPending; transferPending = null;
       document.body.classList.remove('transfer-pending');
       if (message.error) showToast('未移動：' + message.error, true);
-      else { applyTransfer(transfer.plan); showToast('已移動，執行中的程序與輸出保留。'); }
+      else { finishTransfer(transfer.plan, transfer.history, transfer.undo); }
       saveConfig(false); return;
     }
-    if (!message || typeof message !== 'object' || typeof message.type !== 'string') return;
     if (message.type === 'batchFiles') { handleBatchFiles(message); return; }
     if (message.type === 'commandTargets' && nanDiscoveryId && message.requestId === nanDiscoveryId) {
       nanDiscoveryId = null;
       if (!$('nanDialog').open) return;
       $('nanDevices').textContent = '';
-      (Array.isArray(message.candidates) ? message.candidates : []).filter(function (c) { return c.kind === 'device'; }).slice(0, 256).forEach(function (c) { $('nanDevices').appendChild(new Option(c.label, c.value)); });
+      var nanCandidates = Array.isArray(message.candidates) ? message.candidates : [];
+      var devices = nanCandidates.filter(function (c) { return c.kind === 'device'; }).slice(0, 256);
+      devices.forEach(function (c) { $('nanDevices').appendChild(new Option(c.label, c.value)); });
+      if (devices.length === 2 && !$('nanDut1').value && !$('nanDut2').value) {
+        $('nanDut1').value = devices[0].value; $('nanDut2').value = devices[1].value;
+      }
+      $('nanInterfaces').replaceChildren(new Option('自動偵測（建立 NDP 後）', 'auto'));
+      var interfaces = Array.from(new Set(nanCandidates.filter(function (c) { return c.kind === 'android' && /^aware[_-]data\d+$/i.test(c.interfaceName); }).map(function (c) { return c.interfaceName; })));
+      interfaces.forEach(function (iface) { $('nanInterfaces').appendChild(new Option(iface, iface)); });
       $('nanStatus').textContent = message.message || '偵測完成；在 DUT1／DUT2 欄位選擇兩台不同手機。'; return;
     }
     if (message.type === 'commandPathPicked' && nanPathId && message.requestId === nanPathId) {
@@ -1013,7 +1091,7 @@
       var discovery = targetDiscoveryRequest;
       if (!discovery || discovery.id !== message.requestId || discovery.target !== pathCommandTarget || !$('pathCommandDialog').open) return;
       targetDiscoveryRequest = null;
-      targetCandidates = Array.isArray(message.candidates) ? message.candidates.filter(function (c) { return c && typeof c.value === 'string' && typeof c.label === 'string'; }).slice(0,256) : [];
+      targetCandidates = Array.isArray(message.candidates) ? message.candidates.filter(function (c) { return c && typeof c.value === 'string' && typeof c.label === 'string'; }).slice(0,768) : [];
       refreshTargetOptions(); $('targetDiscoveryStatus').textContent = message.message || '偵測完成。僅供選擇，遠端 IP 的連線狀態需由測試確認。'; return;
     }
     if (message.type === 'commandPathPicked') {
@@ -1027,6 +1105,7 @@
     }
     if (message.type === 'folderPicked' || message.type === 'folderPickError') { handleFolderResult(message); return; }
     if (message.type === 'init') {
+      paneHistory = []; selectedPanes.clear();
       batchRequests = {}; invalidateFolderRequests(); destroyViews(); appConfig = normalizeAppConfig(message.config);
       capabilities = Object.assign({ pwsh: false }, message.capabilities || {}); hostReady = true;
       appConfig.workspaces.forEach(createView); activateWorkspace(appConfig.activeWorkspaceId);
@@ -1036,6 +1115,7 @@
       renderFlowOptions(); renderCommandLibrary(); applyLayout(activeView); setStatus('選工作區，再在格子右上角按 ＋ 加終端分頁。'); return;
     }
     if (message.type === 'imported') {
+      paneHistory = []; selectedPanes.clear();
       invalidateFolderRequests();
       if ($('settingsDialog').open) closeSettings();
       destroyViews(); appConfig = normalizeAppConfig(message.config);
@@ -1059,9 +1139,21 @@
       if (isStale(state, message, true)) return;
       pruneCaptures(state); resetCaptureScanner(state);
       state.liveReplace.reset(); state.liveSelection = null; state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
-      state.sessionShell = getTabConfig(view.config, state.slot, state.tabId).shell;
+      state.recording = false; state.recordingPath = null;
+      var startedTab = getTabConfig(view.config, state.slot, state.tabId);
+      state.sessionShell = startedTab.shell;
+      if (startedTab.shell === 'Custom' &&
+          ((/(?:^|[\\/])TerminalGridNan\.exe$/i.test(startedTab.exe) && /^--mode shell[12](?: |$)/.test(startedTab.args)) ||
+           (/(?:^|[\\/])adb(?:\.exe)?$/i.test(startedTab.exe) && /\bshell\b/.test(startedTab.args))))
+        state.sessionShell = 'Android';
       state.lineInput.value = ''; state.lineInput.dispatchEvent(new Event('input', { bubbles: true }));
       if (typeof message.generation === 'number') state.generation = message.generation;
+      if (activeRun && activeRun.output.has(state)) {
+        var observation = activeRun.output.get(state);
+        observation.generation = state.generation;
+        observation.buffer = window.TerminalGridFlowOutput.create();
+        observation.started = true;
+      }
       if (state.clearOnStarted) { state.terminal.reset(); state.hasOutput = false; }
       state.clearOnStarted = false; state.status = 'running'; state.pid = message.pid || null; state.exitCode = null;
       renderPane(view, state.slot); updateCounts(); scheduleFit();
@@ -1073,12 +1165,22 @@
       return;
     }
     if (isStale(state, message, false)) return;
+    if (message.type === 'recording') {
+      state.recording = message.recording; state.recordingPath = message.path;
+      if (logState === state) updateRecording();
+      if (message.error) showToast(message.error, true);
+      return;
+    }
     if (message.type === 'output') {
       if (typeof message.data !== 'string' || !message.data) return;
       try {
         var binary = window.atob(message.data), bytes = new Uint8Array(binary.length);
         for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         var gen = message.generation, size = bytes.length;
+        state.transcript.feed(bytes);
+        if (state.iperfOutput) state.iperfOutput.feed(bytes);
+        var observation = activeRun && activeRun.output.get(state);
+        if (observation && observation.generation === state.generation) observation.buffer.feed(bytes);
         var outputToken = state.liveReplace.output();
         state.terminal.write(bytes, function () {
           if (state.generation === gen) state.liveReplace.parsed(outputToken);
@@ -1093,6 +1195,7 @@
     if (message.type === 'exited') {
       try { if ($('captureEnabled').checked) { state.captureScanner.feed(state.captureDecoder.decode()); state.captureScanner.flush(); } } catch (_) { resetCaptureScanner(state); }
       state.status = 'exited'; state.pid = null; state.exitCode = typeof message.exitCode === 'number' ? message.exitCode : null;
+      state.recording = false; if (logState === state) updateRecording();
       renderPane(view, state.slot); updateCounts(); return;
     }
   }
@@ -1122,13 +1225,14 @@
     $('flowWorkspaceLabel').textContent = flow && flowWorkspace(flow) ? '目標工作區：' + flowWorkspace(flow).name : '';
     $('addFlowStepButton').disabled = !flow || flowRunning; $('runFlowButton').disabled = !flow || !flow.steps.length || flowRunning;
     $('saveFlowFileButton').disabled = !flow || flowRunning; $('deleteFlowButton').disabled = !flow || flowRunning;
+    $('stopRunningFlow').disabled = !flowRunning;
     if (!flow) { stepsHost.innerHTML = '<p class="help-note">新增流程，逐步安排啟動、輸入指令、等待或結束終端。</p>'; return; }
     var workspace = flowWorkspace(flow);
     if (!workspace) { stepsHost.textContent = '找不到此流程的工作區。'; return; }
     flow.steps.forEach(function (step, index) {
       var row = document.createElement('div'); row.className = 'flow-step';
       var action = document.createElement('select');
-      [['start', '啟動終端'], ['send', '輸入指令'], ['wait', '等待時間'], ['pause', '等待操作後繼續'], ['stop', '結束終端']].forEach(function (item) { var o = new Option(item[1], item[0]); action.add(o); });
+      [['start', '啟動終端'], ['send', '輸入指令'], ['wait', '等待時間'], ['pause', '等待操作後繼續'], ['output', '等待輸出'], ['exit', '確認正常結束'], ['stop', '結束終端']].forEach(function (item) { var o = new Option(item[1], item[0]); action.add(o); });
       action.value = step.action;
       var slot = document.createElement('select'); slot.className = 'flow-slot flow-target';
       for (var i = 0; i < MAX_SLOTS; i++) slot.add(new Option(String(i + 1).padStart(2, '0') + ' 格', String(i)));
@@ -1143,7 +1247,28 @@
       moveUp.disabled = moveUp.disabled || flowRunning; moveDown.disabled = moveDown.disabled || flowRunning; remove.disabled = flowRunning;
       row.dataset.action = step.action;
       row.append(action, slot, tab, textInput, enterLabel, moveUp, moveDown, remove); stepsHost.appendChild(row);
-      action.addEventListener('change', function () { step.action = action.value; row.dataset.action = step.action; textInput.placeholder = step.action === 'wait' ? '毫秒（100–30000）' : step.action === 'pause' ? '提示使用者要完成的操作' : '指令內容'; textInput.value = step.action === 'wait' ? String(step.delayMs) : step.text; textInput.hidden = step.action === 'start' || step.action === 'stop'; enterLabel.hidden = step.action !== 'send'; slot.hidden = tab.hidden = step.action === 'wait' || step.action === 'pause'; queueSave(); });
+      if (step.action === 'output' || step.action === 'exit') {
+        var conditions = document.createElement('div');
+        conditions.className = 'flow-conditions';
+        [['timeoutMs', '逾時毫秒', 100, 600000, 10000], ['retries', '再等次數', 0, 5, 0]].forEach(function (spec) {
+          var label = document.createElement('label'), input = document.createElement('input');
+          label.textContent = spec[1]; input.type = 'number'; input.min = spec[2]; input.max = spec[3]; input.value = step[spec[0]] ?? spec[4];
+          input.disabled = flowRunning;
+          input.addEventListener('change', function () { step[spec[0]] = limitNumber(input.value, spec[4], spec[2], spec[3]); input.value = step[spec[0]]; queueSave(); });
+          label.append(input); conditions.append(label);
+        });
+        if (step.action === 'output') {
+          textInput.placeholder = '成功文字，例如 NAN started';
+          var failure = document.createElement('input');
+          failure.placeholder = '失敗文字（選填）'; failure.maxLength = 512; failure.value = step.failureText || ''; failure.disabled = flowRunning;
+          failure.addEventListener('input', function () { step.failureText = failure.value; queueSave(); });
+          conditions.append(failure);
+        }
+        row.append(conditions);
+      }
+      row.dataset.step = index + 1;
+      if (failedFlowStep && failedFlowStep.flowId === flow.id && failedFlowStep.index === index) row.classList.add('flow-failed');
+      action.addEventListener('change', function () { step.action = action.value; renderFlowEditor(); queueSave(); });
       slot.addEventListener('change', function () { step.slot = Number(slot.value); step.tabId = ''; fillFlowTabs(tab, workspace, step.slot, ''); queueSave(); });
       tab.addEventListener('change', function () { step.tabId = tab.value; queueSave(); });
       textInput.addEventListener('input', function () { if (step.action === 'wait') step.delayMs = limitNumber(textInput.value, 500, 100, 30000); else step.text = textInput.value.slice(0, 16000); queueSave(); });
@@ -1151,7 +1276,7 @@
       moveUp.addEventListener('click', function () { var item = flow.steps.splice(index, 1)[0]; flow.steps.splice(index - 1, 0, item); renderFlowEditor(); queueSave(); });
       moveDown.addEventListener('click', function () { var item = flow.steps.splice(index, 1)[0]; flow.steps.splice(index + 1, 0, item); renderFlowEditor(); queueSave(); });
       remove.addEventListener('click', function () { flow.steps.splice(index, 1); renderFlowEditor(); queueSave(); });
-      textInput.hidden = step.action === 'start' || step.action === 'stop'; enterLabel.hidden = step.action !== 'send'; slot.hidden = tab.hidden = step.action === 'wait' || step.action === 'pause';
+      textInput.hidden = ['start', 'stop', 'exit'].includes(step.action); enterLabel.hidden = step.action !== 'send'; slot.hidden = tab.hidden = step.action === 'wait' || step.action === 'pause';
     });
   }
   function fillFlowTabs(select, workspace, slot, selectedId) {
@@ -1185,8 +1310,9 @@
       var steps = data.steps.map(function (s) {
         var slot = limitNumber(s.slot, 0, 0, 15), cell = workspace.slots[slot];
         var tabId = cell.tabs.some(function (t) { return t.id === s.tabId; }) ? s.tabId : cell.activeTabId;
-        return { action: ['start', 'send', 'wait', 'pause', 'stop'].indexOf(s.action) >= 0 ? s.action : 'send',
-          slot: slot, tabId: tabId, text: str(s.text, 16000), delayMs: limitNumber(s.delayMs, 500, 100, 30000), enter: s.enter !== false };
+        return { action: ['start', 'send', 'wait', 'pause', 'stop', 'output', 'exit'].indexOf(s.action) >= 0 ? s.action : 'send',
+          slot: slot, tabId: tabId, text: str(s.text, 16000), delayMs: limitNumber(s.delayMs, 500, 100, 30000), enter: s.enter !== false,
+          timeoutMs: limitNumber(s.timeoutMs || 10000, 10000, 100, 600000), retries: limitNumber(s.retries, 0, 0, 5), failureText: str(s.failureText, 512) };
       });
       var flow = { id: uid('flow'), name: str(data.name, 64).trim() || (fileName || '匯入流程').replace(/\.tgridflow$/i, ''),
         workspaceId: workspace.id, steps: steps };
@@ -1202,44 +1328,103 @@
     if (flowPauseResolve) return Promise.resolve(false);
     $('flowPauseTitle').textContent = '流程暫停 · 第 ' + stepNumber + ' 步';
     $('flowPauseMessage').textContent = instruction || '請完成需要的手動操作，完成後按「繼續」。';
-    return new Promise(function (resolve) { flowPauseResolve = resolve; $('flowPauseDialog').showModal(); $('continuePausedFlowButton').focus(); });
+    return new Promise(function (resolve) { flowPauseResolve = resolve; $('flowPauseDialog').show(); $('continuePausedFlowButton').focus(); });
   }
   function finishFlowPause(continueFlow) {
     var resolve = flowPauseResolve; flowPauseResolve = null;
     if ($('flowPauseDialog').open) $('flowPauseDialog').close();
     if (resolve) resolve(continueFlow);
   }
+  function observeRun(state, command) {
+    var previous = activeRun.output.get(state);
+    if (previous && previous.buffer.text().trim()) appendRunOutput(state, previous);
+    activeRun.output.set(state, { generation: state.generation, buffer: window.TerminalGridFlowOutput.create(), command: command, started: false });
+  }
+  function appendRunOutput(state, entry) {
+    activeRun.lines.push('\r\n--- 第 ' + (state.slot + 1) + ' 格 / ' + state.tabId + ' ---', entry.buffer.text().slice(-16000));
+  }
+  function saveRun() {
+    var run = activeRun;
+    send({ type: 'runSave', runId: run.id, text: run.lines.join('\r\n').slice(0, 1500000) + '\r\n' });
+  }
+  function ensureRunCurrent(state, generation) {
+    if (activeRun.cancelled) throw Error('已停止流程。');
+    if (state && (generation !== state.generation || getState(state.workspaceId, state.slot, state.tabId) !== state))
+      throw Error('目標終端已重新啟動或關閉。');
+  }
+  async function waitForFlowCondition(step, state) {
+    var observation = activeRun.output.get(state);
+    if (!observation) throw Error('請先加入此終端的「啟動」或「輸入指令」步驟。');
+    var timeout = limitNumber(step.timeoutMs || 10000, 10000, 100, 600000);
+    var generation = observation.generation;
+    for (var attempt = 0; attempt <= (step.retries || 0); attempt++) {
+      var deadline = performance.now() + timeout;
+      do {
+        ensureRunCurrent(state, generation);
+        if (step.action === 'output' && observation.buffer.match(step.failureText, observation.command))
+          throw Error('收到失敗文字「' + step.failureText + '」。');
+        if (step.action === 'output' && observation.buffer.match(step.text, observation.command)) return;
+        if (state.status === 'exited') {
+          if (step.action === 'exit' && state.exitCode === 0) return;
+          throw Error('終端已結束（代碼 ' + state.exitCode + '）。');
+        }
+        if (state.status === 'error') throw Error('終端發生錯誤。');
+        await delay(75);
+      } while (performance.now() < deadline);
+      activeRun.lines.push(new Date().toISOString() + ' 等待逾時，第 ' + (attempt + 1) + ' 次');
+    }
+    throw Error('等待' + (step.action === 'exit' ? '終端正常結束' : '輸出「' + step.text + '」') + '逾時。');
+  }
   async function runFlow() {
     var flow = currentFlow(); if (!flow || flowRunning || flowPreparing) return;
     flow = JSON.parse(JSON.stringify(flow));
     var workspace = flowWorkspace(flow);
     flowPreparing = true;
+    var shared = Object.create(null);
     try {
       for (var p = 0; p < flow.steps.length; p++) {
         var planned = flow.steps[p], tab = workspace.slots[planned.slot].tabs.find(function (t) { return t.id === planned.tabId; });
         if (planned.action === 'start' && tab && window.TerminalGridDefaults.keys(window.TerminalGridDefaults.prepare(tab.command)).length) { showToast('請先在終端設定填妥啟動指令參數；範本請放在流程「輸入指令」步驟。', true); return; }
+        if (planned.action === 'output' && !planned.text.trim()) { showToast('第 ' + (p + 1) + ' 步請填入成功文字。', true); return; }
         if (planned.action !== 'send') continue;
         planned.text = window.TerminalGridDefaults.prepare(planned.text);
-        if (!window.TerminalGridDefaults.keys(planned.text).length) continue;
+        var keys = window.TerminalGridDefaults.keys(planned.text);
+        if (!keys.length) continue;
         var targetState = getState(flow.workspaceId, planned.slot, planned.tabId);
         if (!targetState) return;
-        var resolved = await new Promise(function (resolve) { openPathCommand(targetState, planned.text, resolve); });
+        var resolved = keys.every(function (key) { return shared[key]; })
+          ? window.TerminalGridDefaults.resolve(planned.text, shared, targetState.status === 'running' ? targetState.sessionShell : (tab || getTabConfig(workspace, planned.slot, targetState.tabId)).shell)
+          : await new Promise(function (resolve) { openPathCommand(targetState, planned.text, resolve, shared); });
         if (resolved === null) return;
         planned.text = resolved;
       }
-    } finally { flowPreparing = false; }
-    var summary = flow.steps.map(function (step, i) {
+    } catch (error) { showToast(error.message, true); return; }
+    finally { flowPreparing = false; }
+    var summaryLines = flow.steps.map(function (step, i) {
       var tab = workspace.slots[step.slot].tabs.find(function (t) { return t.id === step.tabId; }) || workspace.slots[step.slot].tabs[0];
       var verb = step.action === 'send' ? ((step.text || '（空指令）') + (step.enter ? '  ↵' : '')) : step.action === 'wait' ? '等待 ' + step.delayMs + ' ms' : step.action === 'pause' ? '等待使用者：' + (step.text || '完成操作後按繼續') : step.action === 'start' ? ('啟動 ' + tab.shell + (tab.exe ? ' · ' + tab.exe + ' ' + tab.args : '') + (tab.cwd ? ' · 目錄 ' + tab.cwd : '') + (tab.command ? '\n啟動指令：' + tab.command : '')) : '結束終端';
       if (step.action === 'start' && tab.batchFile) verb = '啟動 CMD · BAT 原檔：' + tab.batchFile + '\n（啟動不會等待 BAT 完成）';
+      if (step.action === 'output') verb = '等待輸出「' + step.text + '」' + (step.failureText ? '，遇到「' + step.failureText + '」停止' : '');
+      if (step.action === 'exit') verb = '等待終端以代碼 0 結束';
       return step.action === 'pause' || step.action === 'wait' ? (i + 1) + '. ' + verb : (i + 1) + '. ' + String(step.slot + 1).padStart(2, '0') + ' 格 / ' + tab.name + ' · ' + verb;
-    }).join('\n');
-    if (!(await askConfirmation('執行「' + flow.name + '」？', '以下步驟會依序送到本機終端：\n\n' + summary + '\n\n請確認目標與指令正確。', '確認執行'))) return;
-    flowRunning = true; renderFlowEditor();
+    });
+    if (!(await askConfirmation('執行「' + flow.name + '」？', '以下步驟會依序送到本機終端：\n\n' + summaryLines.join('\n') + '\n\n請確認目標與指令正確。', '確認執行'))) return;
+    $('flowDialog').close();
+    flowRunning = true; failedFlowStep = null;
+    activeRun = { id: uid('run'), output: new Map(), lines: ['開始 ' + new Date().toISOString(), '流程 ' + flow.name, '工作區 ' + workspace.name], cancelled: false };
+    $('flowLogPath').textContent = ''; $('flowProgress').textContent = '執行中';
+    saveRun(); renderFlowEditor();
+    var i = 0;
     try {
-      for (var i = 0; i < flow.steps.length; i++) {
+      for (; i < flow.steps.length; i++) {
+        ensureRunCurrent();
         var step = flow.steps[i];
-        if (step.action === 'wait') { await delay(limitNumber(step.delayMs, 500, 100, 30000)); continue; }
+        var progress = '第 ' + (i + 1) + ' / ' + flow.steps.length + ' 步';
+        $('flowProgress').textContent = progress;
+        setStatus(flow.name + ' · ' + progress);
+        activeRun.lines.push(new Date().toISOString() + ' ' + summaryLines[i]);
+        saveRun();
+        if (step.action === 'wait') { await flowDelay(step.delayMs); continue; }
         if (step.action === 'pause') {
           if (!(await waitForUserContinue(step.text, i + 1))) throw new Error('已停止後續自動化步驟。');
           continue;
@@ -1248,23 +1433,48 @@
         if (!view || !state) throw new Error('第 ' + (i + 1) + ' 步找不到目標終端。');
         activateWorkspace(flow.workspaceId); view.panes[step.slot].config.activeTabId = step.tabId; renderPane(view, step.slot); markFocused(view, step.slot, step.tabId);
         if (step.action === 'start') {
-          if (!isActive(state) && !startSlot(view, step.slot, step.tabId, false)) throw new Error('第 ' + (i + 1) + ' 步無法啟動終端。');
+          if (!isActive(state)) {
+            var tabConfig = getTabConfig(workspace, step.slot, step.tabId);
+            observeRun(state, tabConfig.command);
+            if (!startSlot(view, step.slot, step.tabId, false)) throw new Error('無法啟動終端。');
+          }
           var startDeadline = Date.now() + 30000;
-          while (state.status === 'starting' && Date.now() < startDeadline) await delay(100);
-          if (state.status !== 'running') throw new Error('第 ' + (i + 1) + ' 步啟動失敗或逾時。');
+          while (state.status === 'starting' && Date.now() < startDeadline) await flowDelay(100);
+          var started = activeRun.output.get(state);
+          if (state.status !== 'running' && !(state.status === 'exited' && state.exitCode === 0 && started && started.started))
+            throw new Error('第 ' + (i + 1) + ' 步啟動失敗或逾時。');
         } else if (step.action === 'send') {
           if (state.status !== 'running') throw new Error('第 ' + (i + 1) + ' 步目標尚未執行；請先加入「啟動終端」步驟。');
-          if (step.text) send(withGeneration(state, { type: 'input', data: step.text + (step.enter ? '\r' : '') }));
+          observeRun(state, step.text);
+          if (step.text && !send(withGeneration(state, { type: 'input', data: step.text + (step.enter ? '\r' : '') }))) throw Error('無法送出指令。');
+        } else if (step.action === 'output' || step.action === 'exit') {
+          await waitForFlowCondition(step, state);
         } else if (step.action === 'stop') {
           if (state.status === 'running') { state.status = 'stopping'; renderPane(view, step.slot); send(withGeneration(state, { type: 'stop' })); }
           var stopDeadline = Date.now() + 10000;
-          while (state.status === 'stopping' && Date.now() < stopDeadline) await delay(100);
+          while (isBusy(state) && Date.now() < stopDeadline) await flowDelay(100);
+          if (isActive(state)) throw Error('終端尚未停止，請稍後重試。');
         }
-        if (step.delayMs > 0) await delay(limitNumber(step.delayMs, 500, 100, 30000));
+        if (step.delayMs > 0) await flowDelay(step.delayMs);
       }
+      ensureRunCurrent();
+      $('flowProgress').textContent = '流程完成';
       showToast('流程「' + flow.name + '」已完成。');
-    } catch (error) { showToast('流程已停止：' + error.message, true); }
-    finally { flowRunning = false; renderFlowEditor(); updateCounts(); }
+    } catch (error) {
+      failedFlowStep = { flowId: flow.id, index: i };
+      $('flowProgress').textContent = '第 ' + (i + 1) + ' 步 · ' + error.message;
+      showToast($('flowProgress').textContent, true);
+    } finally {
+      activeRun.lines.push('結束 ' + new Date().toISOString(), '結果 ' + $('flowProgress').textContent);
+      activeRun.output.forEach(function (entry, state) { appendRunOutput(state, entry); });
+      saveRun(); lastRun = activeRun; activeRun = null;
+      flowRunning = false; renderFlowEditor(); updateCounts();
+      var failed = $('flowSteps').querySelector('.flow-failed'); if (failed) failed.scrollIntoView({ block: 'nearest' });
+    }
+  }
+  async function flowDelay(ms) {
+    var deadline = performance.now() + ms;
+    while (performance.now() < deadline) { ensureRunCurrent(); await delay(Math.min(100, deadline - performance.now())); }
   }
   function deleteFlow() {
     var flow = currentFlow(); if (!flow) return;
@@ -1400,6 +1610,10 @@
     }
     return true;
   }
+  function clearPaneSelection() {
+    selectedPanes.clear();
+    document.querySelectorAll('.pane.batch-selected').forEach(function (element) { element.classList.remove('batch-selected'); });
+  }
   function applyTransfer(plan) {
     var moving = plan.moves.map(function (m) { return { state: getState(m.from.workspaceId, m.from.slot, m.from.tabId), move: m }; });
     // Capture references before changing any address (a swap can have equal tab IDs).
@@ -1420,21 +1634,102 @@
       item.key = [to.workspaceId, to.slot, to.tabId, item.interfaceName, item.address.toLowerCase()].join('|');
       item.source = workspace.name + ' · ' + String(to.slot + 1).padStart(2, '0') + ' · ' + getTabConfig(workspace, to.slot, to.tabId).name;
     });
-    views.forEach(function (view) { view.panes.forEach(function (cell, i) { cell.config.tabs.forEach(function (t) { if (!getState(view.config.id, i, t.id)) makeTerminal(view, i, t); }); renderPane(view, i); }); });
+    views.forEach(function (view) { view.panes.forEach(function (cell, i) {
+      cell.tabs = cell.tabs.filter(function (state) {
+        if (cell.config.tabs.some(function (t) { return t.id === state.tabId; })) return true;
+        pruneCaptures(state); disposeTerminal(state); state.layer.remove(); return false;
+      });
+      cell.config.tabs.forEach(function (t) { if (!getState(view.config.id, i, t.id)) makeTerminal(view, i, t); });
+      renderPane(view, i);
+    }); });
     var dest = plan.destination, view = getView(dest.workspaceId); view.zoomedSlot = null;
     activateWorkspace(dest.workspaceId); markFocused(view, dest.slot, dest.tabId);
     if (paneClipboard && paneClipboard.mode === 'move') paneClipboard = null;
     queueCaptureRender(); renderFlowOptions(); scheduleFit();
   }
+  function rememberPaneAction(label, before, after, moves, destination, addresses) {
+    var keys = new Set(), cells = [];
+    addresses.forEach(function (address) {
+      var key = address.workspaceId + ':' + address.slot;
+      if (keys.has(key)) return;
+      keys.add(key);
+      var oldCell = before.workspaces.find(function (w) { return w.id === address.workspaceId; }).slots[address.slot];
+      var newCell = after.workspaces.find(function (w) { return w.id === address.workspaceId; }).slots[address.slot];
+      cells.push({ address: address, before: oldCell, after: JSON.stringify(newCell.tabs) });
+    });
+    var flows = before.automations.filter(function (flow) {
+      return JSON.stringify(flow) !== JSON.stringify(after.automations.find(function (item) { return item.id === flow.id; }));
+    }).map(function (flow) {
+      return { before: flow, after: JSON.stringify(after.automations.find(function (item) { return item.id === flow.id; })) };
+    });
+    paneHistory.push({ label: label, time: new Date().toLocaleTimeString(), cells: cells, flows: flows, moves: moves,
+      destination: destination, clipboard: paneClipboard });
+    if (paneHistory.length > 20) paneHistory.shift();
+  }
+  function finishTransfer(plan, history, undo) {
+    if (history) rememberPaneAction(history.label, appConfig, plan.config, plan.moves, history.source, history.addresses);
+    applyTransfer(plan);
+    clearPaneSelection();
+    if (undo) { paneHistory.pop(); paneClipboard = undo.clipboard; }
+    saveConfig(false);
+    showToast(undo ? '已復原：' + undo.label : (plan.moves.length ? '已移動，程序及輸出保留。' : '已複製分頁設定。'));
+  }
+  function submitTransfer(plan, history, undo) {
+    if (plan.moves.some(function (m) { var s = getState(m.from.workspaceId, m.from.slot, m.from.tabId); return !s || isBusy(s); }))
+      throw Error('請等終端啟動或停止完成再移動。');
+    if (!plan.moves.length) { finishTransfer(plan, history, undo); return; }
+    window.clearTimeout(saveTimer);
+    transferPending = { id: uid('move'), plan: plan, history: history, undo: undo };
+    document.body.classList.add('transfer-pending');
+    if (!send({ type: 'relocate', requestId: transferPending.id, config: plan.config, moves: plan.moves })) {
+      transferPending = null; document.body.classList.remove('transfer-pending');
+    }
+  }
+  function undoPaneAction() {
+    if (!canTransfer() || !paneHistory.length) { if (!paneHistory.length) showToast('目前沒有可復原的格子操作。'); return; }
+    var entry = paneHistory[paneHistory.length - 1];
+    if (!entry.cells.length) {
+      paneClipboard = entry.clipboard; paneHistory.pop(); showToast('已復原：' + entry.label); return;
+    }
+    try {
+      var config = JSON.parse(JSON.stringify(appConfig));
+      var reverse = entry.moves.map(function (move) { return { from: move.to, to: move.from }; });
+      entry.cells.forEach(function (change) {
+        var a = change.address, workspace = config.workspaces.find(function (w) { return w.id === a.workspaceId; });
+        if (!workspace || JSON.stringify(workspace.slots[a.slot].tabs) !== change.after) throw Error('格子設定已有變更，無法安全復原。');
+        var previous = JSON.parse(JSON.stringify(change.before));
+        var view = getView(a.workspaceId);
+        view.panes[a.slot].tabs.forEach(function (state) {
+          if (!previous.tabs.some(function (tab) { return tab.id === state.tabId; }) &&
+              !reverse.some(function (m) { return m.from.workspaceId === a.workspaceId && m.from.slot === a.slot && m.from.tabId === state.tabId; }) &&
+              isActive(state)) throw Error('請先結束復原時會移除的終端。');
+        });
+        workspace.slots[a.slot] = previous;
+      });
+      entry.flows.forEach(function (change) {
+        var index = config.automations.findIndex(function (flow) { return flow.id === change.before.id; });
+        if (JSON.stringify(config.automations[index]) !== change.after) throw Error('相關流程已有變更，無法安全復原。');
+        config.automations[index] = change.before;
+      });
+      var destination = Object.assign({}, entry.destination);
+      submitTransfer({ config: config, moves: reverse, destination: destination }, null, entry);
+    } catch (error) { showToast(error.message, true); }
+  }
   function transferPane(source, target, mode) {
+    transferPaneGroup([source], target, mode);
+  }
+  function transferPaneGroup(sources, target, mode) {
     if (!canTransfer()) return;
     try {
-      var plan = window.TerminalGridTransfer.plan(appConfig, source, target, mode, function () { return uid('tab'); });
-      if (plan.moves.some(function (m) { var s = getState(m.from.workspaceId, m.from.slot, m.from.tabId); return !s || isBusy(s); })) throw Error('請等終端啟動或停止完成再移動。');
-      if (mode === 'copy') { applyTransfer(plan); saveConfig(false); showToast('已複製啟動資料夾與設定；新分頁尚未執行。'); return; }
-      window.clearTimeout(saveTimer);
-      transferPending = { id: uid('move'), plan: plan }; document.body.classList.add('transfer-pending');
-      if (!send({ type: 'relocate', requestId: transferPending.id, config: plan.config, moves: plan.moves })) { transferPending = null; document.body.classList.remove('transfer-pending'); }
+      var config = appConfig, moves = [], destination;
+      sources.forEach(function (source) {
+        var planned = window.TerminalGridTransfer.plan(config, source, target, mode, function () { return uid('tab'); });
+        config = planned.config; moves.push.apply(moves, planned.moves); destination = planned.destination;
+      });
+      submitTransfer({ config: config, moves: moves, destination: destination }, {
+        label: mode === 'copy' ? '貼上分頁設定' : mode === 'swap' ? '交換格子' : '移動分頁',
+        source: sources[0], addresses: sources.concat([target])
+      }, null);
     } catch (error) { showToast(error.message, true); }
   }
   function chooseTransferTarget(state, mode) {
@@ -1451,8 +1746,18 @@
   }
   function addPaneMenuActions(add, state) {
     add('複製此分頁設定', function () { paneClipboard = { mode: 'copy', source: stateAddress(state) }; showToast('已複製來源；到目標格標題按右鍵貼上設定。'); });
-    add('剪下此分頁（貼上後移動）', function () { paneClipboard = { mode: 'move', source: stateAddress(state) }; showToast('已標記來源；到目標格標題按右鍵貼上，不會先關閉程序。'); });
-    if (paneClipboard) add(paneClipboard.mode === 'copy' ? '在此格貼上分頁設定' : '將剪下的分頁移到此格', function () { transferPane(paneClipboard.source, stateAddress(state), paneClipboard.mode); });
+    add('剪下此分頁（貼上後移動）', function () { rememberPaneAction('剪下分頁', appConfig, appConfig, [], stateAddress(state), []); paneClipboard = { mode: 'move', source: stateAddress(state) }; showToast('已標記來源；到目標格標題按右鍵貼上。'); });
+    if (selectedPanes.size) {
+      add('複製所選格的有效分頁（' + selectedPanes.size + '）', function () { paneClipboard = { mode: 'copy', sources: Array.from(selectedPanes.values()) }; showToast('到目標格右鍵貼上選取的分頁。'); });
+      add('剪下所選格的有效分頁（' + selectedPanes.size + '）', function () {
+        rememberPaneAction('剪下多個分頁', appConfig, appConfig, [], stateAddress(state), []);
+        paneClipboard = { mode: 'move', sources: Array.from(selectedPanes.values()) }; showToast('到目標格右鍵移動選取的分頁。');
+      });
+    }
+    if (paneClipboard) add(paneClipboard.mode === 'copy' ? '在此格貼上分頁設定' : '將剪下的分頁移到此格', function () {
+      transferPaneGroup(paneClipboard.sources || [paneClipboard.source], stateAddress(state), paneClipboard.mode);
+    });
+    if (paneHistory.length) add('復原上一次格子操作', undoPaneAction);
     add('複製設定到工作區／格子…', function () { chooseTransferTarget(state, 'copy'); });
     add('移動到工作區／格子…', function () { chooseTransferTarget(state, 'move'); });
     add('關閉並移除此分頁…', function () { removeTerminalTab(getView(state.workspaceId), state.slot, state.tabId); });
@@ -1469,6 +1774,18 @@
   function installPaneTransfer(view, slot) {
     var element = view.panes[slot].element, title = element.querySelector('.pane-title-row');
     title.draggable = true; title.title = '拖曳標題交換整格；拖曳分頁移動單一終端；右鍵管理';
+    title.addEventListener('click', function (event) {
+      if (event.target.closest('button')) return;
+      title.focus();
+      var current = activeState(view, slot); markFocused(view, slot, current.tabId);
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      var key = view.config.id + ':' + slot;
+      if (selectedPanes.has(key)) selectedPanes.delete(key);
+      else selectedPanes.set(key, stateAddress(activeState(view, slot)));
+      element.classList.toggle('batch-selected', selectedPanes.has(key));
+    });
+    title.tabIndex = 0;
     element.querySelector('.pane-header').addEventListener('contextmenu', function (event) {
       var tab = event.target.closest('[data-tab-id]'); showPaneMenu(event, tab ? getState(view.config.id, slot, tab.dataset.tabId) : activeState(view, slot));
     });
@@ -1506,6 +1823,8 @@
     add('選檔執行 BAT／CMD…', function () { requestBatch(getView(state.workspaceId), state.slot); });
     add('終端設定…', function () { openSettings(getView(state.workspaceId), state.slot, state.tabId); });
     addPaneMenuActions(add, state);
+    add('快速截圖＋Log（F8）', function () { captureEvidence(state); });
+    add('檢視／匯出終端 Log…', function () { openTerminalLog(state); });
     var separator = document.createElement('div'); separator.className = 'context-separator'; menu.appendChild(separator);
     add('開啟指令庫…', function () { renderCommandLibrary(); $('commandDialog').showModal(); });
     window.TerminalGridDefaults.packs.forEach(function (pack) { add(pack.name + '…', function () { renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); $('commandDialog').showModal(); }); });
@@ -1578,7 +1897,96 @@
     reader.readAsText(file, 'UTF-8');
   }
 
+  function terminalLog(state) {
+    return (state.recordingPath ? '完整錄製檔案：' + state.recordingPath + '\r\n\r\n' : '') +
+      state.transcript.text() + (state.logMarkers.length ? '\r\n--- 標記 ---\r\n' + state.logMarkers.join('\r\n') : '');
+  }
+  function captureEvidence(state) {
+    if (!hostReady || evidence || document.querySelector('dialog[open]:not(#flowPauseDialog)')) return;
+    if (!state.hasOutput || !state.layer.getClientRects().length) { showToast('請先顯示有輸出的終端分頁。', true); return; }
+    var bounds = state.layer.closest('.pane').getBoundingClientRect();
+    var text = terminalLog(state), result = window.TerminalGridFlowOutput.iperfResult((state.iperfOutput || state.transcript).text());
+    if (state.status === 'exited' && state.exitCode !== null)
+      result.status += ' · 終端退出碼 ' + state.exitCode;
+    evidence = { id: uid('evidence'), text: text, status: result.status };
+    $('evidenceRate').value = result.rate;
+    $('evidenceResult').value = '待確認';
+    $('saveEvidenceButton').disabled = true;
+    var capture = evidence;
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      if (evidence !== capture) return;
+      if (!send({ type: 'captureEvidence', requestId: capture.id,
+        x: bounds.left / innerWidth, y: bounds.top / innerHeight, w: bounds.width / innerWidth, h: bounds.height / innerHeight })) evidence = null;
+    }); });
+  }
+  function openTerminalLog(state) {
+    logState = state;
+    $('terminalLogText').value = terminalLog(state);
+    updateRecording();
+    $('terminalLogDialog').showModal();
+    $('terminalLogQuery').focus();
+  }
+  function updateRecording() {
+    $('terminalRecordingPath').textContent = logState.recordingPath || '';
+    $('toggleTerminalRecording').textContent = logState.recording ? '停止錄製' : '開始錄製完整 Log';
+    $('toggleTerminalRecording').disabled = logState.status !== 'running';
+  }
   function initialize() {
+    var historyButton = document.createElement('button');
+    historyButton.className = 'button'; historyButton.textContent = '最近格子操作…';
+    $('appOptions').querySelector('.app-options-menu').appendChild(historyButton);
+    historyButton.addEventListener('click', function () {
+      $('paneHistoryList').replaceChildren();
+      paneHistory.slice().reverse().forEach(function (item) {
+        var li = document.createElement('li'); li.textContent = item.time + ' · ' + item.label;
+        $('paneHistoryList').append(li);
+      });
+      $('undoPaneButton').disabled = !paneHistory.length;
+      $('paneHistoryDialog').showModal();
+    });
+    $('undoPaneButton').addEventListener('click', function () { $('paneHistoryDialog').close(); undoPaneAction(); });
+    var sharedParams = document.createElement('label');
+    sharedParams.id = 'shareFlowParamsLabel'; sharedParams.hidden = true;
+    sharedParams.innerHTML = '<input id="shareFlowParams" type="checkbox"> 套用同名參數到整個流程';
+    $('pathCommandFields').after(sharedParams);
+    var flowTools = document.createElement('div');
+    flowTools.innerHTML = '<p id="flowProgress" role="status"></p><p id="flowLogPath" class="help-note"></p><div class="folder-input-row"><button id="stopRunningFlow" class="button" disabled>停止流程</button><button id="exportFlowLog" class="button">匯出最近流程 Log</button></div>';
+    $('flowSteps').after(flowTools);
+    $('stopRunningFlow').addEventListener('click', function () { if (activeRun) activeRun.cancelled = true; finishFlowPause(false); });
+    $('exportFlowLog').addEventListener('click', function () {
+      if (!lastRun) { showToast('本次開啟程式後尚未完成流程。'); return; }
+      send({ type: 'exportLog', text: lastRun.lines.join('\r\n') });
+    });
+    $('evidenceDialog').addEventListener('close', function () { evidence = null; });
+    $('evidenceForm').addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (!evidence) return;
+      var sheet = $('evidenceSheet').value.trim(), tc = $('evidenceTc').value.trim();
+      if (!sheet || !tc) { showToast('請填工作表與 TC 編號。', true); return; }
+      send({ type: 'saveEvidence', requestId: evidence.id, sheet: sheet, tc: tc, status: evidence.status, text: evidence.text,
+        result: $('evidenceResult').value, rate: $('evidenceRate').value.trim() });
+      $('evidenceDialog').close();
+    });
+    $('findTerminalLog').addEventListener('click', function () {
+      var query = $('terminalLogQuery').value.toLowerCase(), area = $('terminalLogText');
+      if (!query) return;
+      var text = area.value.toLowerCase(), index = text.indexOf(query, area.selectionEnd);
+      if (index < 0) index = text.indexOf(query);
+      if (index < 0) { showToast('找不到相符的文字。'); return; }
+      area.focus(); area.setSelectionRange(index, index + query.length);
+      area.scrollTop = Math.max(0, (area.value.slice(0, index).split('\n').length - 4) * parseFloat(getComputedStyle(area).lineHeight));
+    });
+    $('markTerminalLog').addEventListener('click', function () {
+      if (!logState) return;
+      logState.logMarkers.push(new Date().toISOString() + ' ' + ($('terminalLogNote').value.trim() || '標記'));
+      if (logState.logMarkers.length > 100) logState.logMarkers.shift();
+      $('terminalLogNote').value = ''; $('terminalLogText').value = terminalLog(logState);
+    });
+    $('clearTerminalScreen').addEventListener('click', function () { if (logState) logState.terminal.clear(); $('terminalLogDialog').close(); });
+    $('exportTerminalLog').addEventListener('click', function () { if (logState) send({ type: 'exportLog', text: terminalLog(logState) }); });
+    $('toggleTerminalRecording').addEventListener('click', function () {
+      if (logState) send(withGeneration(logState, { type: logState.recording ? 'recordStop' : 'recordStart' }));
+    });
     window.TerminalGridHelp.render($('helpDialog'));
     var batchButton = document.createElement('button'); batchButton.id = 'runBatchButton'; batchButton.className = 'button'; batchButton.textContent = '選檔執行 BAT／CMD…';
     batchButton.addEventListener('click', function () { var target = batchTarget(null); requestBatch(target.view, target.slot); });
@@ -1607,7 +2015,7 @@
       event.preventDefault();
       if (flowRunning || flowPreparing || nanPathId) { showToast('請先完成目前流程或資料夾選擇。'); return; }
       if (appConfig.workspaces.length >= 12 || appConfig.automations.length >= 32) { showToast('工作區或流程已達上限，請先移除不需要的項目。', true); return; }
-      var values = {}; ['Dut1', 'Dut2', 'If1', 'If2', 'Tool', 'Bin1', 'Bin2', 'Amount', 'Port', 'Folder'].forEach(function (key) { values[key.toLowerCase()] = $('nan' + key).value.trim(); });
+      var values = { recovery: $('nanRecovery').checked }; ['Dut1', 'Dut2', 'If1', 'If2', 'Tool', 'Bin1', 'Bin2', 'Amount', 'Port', 'Folder'].forEach(function (key) { values[key.toLowerCase()] = $('nan' + key).value.trim(); });
       try { var flow = window.TerminalGridNan.create(values); $('nanDialog').close(); loadFlowFile(JSON.stringify(flow), 'NAN.tgridflow'); }
       catch (error) { showToast(error.message, true); }
     });
@@ -1632,8 +2040,14 @@
       try {
         var shell = target.state.status === 'running' ? target.state.sessionShell : getTabConfig(getWorkspace(target.state.workspaceId), target.state.slot, target.state.tabId).shell;
         var text = window.TerminalGridDefaults.resolve(target.text, values, shell);
+        if (target.shared && $('shareFlowParams').checked) Object.assign(target.shared, values);
         pathCommandTarget = null; pathPickPending = null; targetDiscoveryRequest = null;
-        $('pathCommandDialog').close(); if (target.finish) target.finish(text); else insertCommand(target.state, text, false, true);
+        $('pathCommandDialog').close();
+        if (target.finish) target.finish(text);
+        else if (target.replace) {
+          if (!target.selection) showToast('請重新框選可編輯的指令內容。', true);
+          else replaceLiveSelection(target.state, text, target.selection);
+        } else insertCommand(target.state, text, false, true);
       } catch (error) { showToast(error.message, true); }
     });
     try { if (localStorage.getItem('terminalGrid.rightClickMode') === 'menu') rightClickMode = 'menu'; } catch (_) { }
@@ -1769,6 +2183,18 @@
       buttons[index].focus();
     });
     document.addEventListener('keydown', function (event) {
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.code === 'KeyZ' &&
+          !event.target.closest('input, textarea, [contenteditable], .terminal-mount') && !document.querySelector('dialog[open]')) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (!event.repeat) undoPaneAction();
+        return;
+      }
+      if (event.key === 'F8' && !event.repeat && focused && !document.querySelector('dialog[open]:not(#flowPauseDialog)')) {
+        event.preventDefault(); event.stopImmediatePropagation(); captureEvidence(focused.state); return;
+      }
+      if (event.key === 'Escape' && selectedPanes.size && $('terminalContextMenu').hidden && !document.querySelector('dialog[open]')) {
+        event.preventDefault(); event.stopImmediatePropagation(); clearPaneSelection(); return;
+      }
       if (event.key === 'Escape' && (!$('terminalContextMenu').hidden || $('appOptions').open)) {
         event.preventDefault(); event.stopImmediatePropagation();
         if ($('appOptions').open) { $('appOptions').open = false; $('appOptions').querySelector('summary').focus(); }

@@ -20,9 +20,17 @@
       slots: groups.map(function (tabs) { return { activeTabId: tabs[0].id, tabs: tabs }; }) };
     function start(slot) { return { action: 'start', slot: slot, tabId: groups[slot][0].id, delayMs: 100 }; }
     function pause(text) { return { action: 'pause', slot: 0, tabId: groups[0][0].id, text: text }; }
-    var steps = [start(0), start(1), pause('請透過兩個 scrcpy 視窗在 APK 建立 NAN／NDP。確認連線建立後立即按「繼續」；接著即時讀 DUT1 ' + v.if1 + '，在 DUT2 以 %' + v.if2 + ' 持續 ping6。') , start(3)];
-    if (v.tool !== 'share') steps.push(start(2), pause('確認第 04 格 ping6 有回覆，且第 03 格 server 正常監聽，再按「繼續」啟動 ' + v.amount + ' 流量。若出錯先停止流程；可關閉此視窗後修正設定／重新啟動該格。'), start(4));
+    var steps = [start(0), start(1), pause('請透過兩個 scrcpy 視窗在 APK 建立 NAN／NDP。完成後按「繼續」，DUT2 會使用當下的 DUT1 IPv6 與 DUT2 發送介面執行 ping6。') , start(3)];
+    if (v.tool !== 'share') steps.push(start(2), pause('確認第 04 格 ping6 有回覆，且第 03 格 server 正常監聽，再按「繼續」啟動 ' + v.amount + ' 流量。若出錯先停止流程；可關閉此視窗後修正設定／重新啟動該格。'), start(4),
+      { action: 'exit', slot: 4, tabId: 'nan-traffic', timeoutMs: 600000, retries: 0 });
     else steps.push(pause('Ping 已啟動。請確認第 04 格有回覆，再透過 scrcpy 操作 Quick Share 傳送檔案。完成後按「繼續」結束流程編排，Ping 會持續；需自行停止第 04 格。'));
+    if (v.recovery) {
+      steps.push(pause('透過 APK 中斷 NDP，核對第 04 格 ping 是否失去回覆，必要時按 F8 留下證據。完成後按繼續。'));
+      [3, 2, 4, 0, 1].forEach(function (slot) { steps.push(Object.assign(start(slot), { action: 'stop' })); });
+      steps.push(pause('拔除並重插兩台手機。確認 USB 偵錯已重新授權，且仍使用原 DUT 序號，再按繼續。'),
+        start(0), start(1), pause('重新建立 Wi-Fi Aware／NDP 後按繼續，重新偵測兩端介面與 IPv6 並測試 Ping。'),
+        start(3), { action: 'output', slot: 3, tabId: 'nan-ping', text: 'bytes from', timeoutMs: 10000, retries: 2 });
+    }
     // Re-running must end only this workspace's old traffic before obtaining a
     // fresh NDP address; a still-running ping must never retain yesterday's IP.
     steps = [3, 2, 4].map(function (slot) { var step = start(slot); step.action = 'stop'; return step; }).concat(steps);

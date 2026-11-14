@@ -84,6 +84,19 @@ public static class NanRunner
         catch (InvalidOperationException) { output = Query(adb, serial, "ifconfig " + iface); }
         return SelectAddress(output, iface);
     }
+    public static string SelectInterface(IEnumerable<TargetCandidate> addresses)
+    {
+        var choices = addresses.Where(a => Regex.IsMatch(a.interfaceName, @"^aware[_-]data[0-9]+$", RegexOptions.IgnoreCase)
+            && IPAddress.Parse(a.value).IsIPv6LinkLocal).Select(a => a.interfaceName).Distinct().ToList();
+        if (choices.Count != 1) throw new InvalidOperationException(choices.Count == 0
+            ? "No active Wi-Fi Aware interface. Re-establish NDP, then try again."
+            : "Multiple Wi-Fi Aware interfaces have IPv6. Choose the intended interface in the wizard.");
+        return choices[0];
+    }
+    static string ResolveInterface(string adb, string serial, string iface)
+    {
+        return iface == "auto" ? SelectInterface(TargetDiscovery.AndroidAddresses(Query(adb, serial, "ip addr show"), serial)) : iface;
+    }
     static int Run(string executable, string[] args)
     {
         using (var p = new Process { StartInfo = new ProcessStartInfo(executable, Arguments(args)) { UseShellExecute = false } }) {
@@ -103,10 +116,12 @@ public static class NanRunner
             if (mode == "server") {
                 serial = v["dut1"]; command = v["bin1"] + " " + ipv6Flag + " -s -p " + v["port"];
             } else {
-                Console.WriteLine("Reading current DUT1 IPv6 on " + v["if1"] + " ...");
-                string address = ReadAddress(adb, v["dut1"], v["if1"]);
-                string target = Scope(address, v["if2"]);
-                Console.WriteLine("IPv6: " + address + " | DUT2 target: " + target);
+                string interface1 = ResolveInterface(adb, v["dut1"], v["if1"]);
+                string interface2 = ResolveInterface(adb, v["dut2"], v["if2"]);
+                Console.WriteLine("DUT1 " + v["dut1"] + " · Reading IPv6 on " + interface1);
+                string address = ReadAddress(adb, v["dut1"], interface1);
+                string target = Scope(address, interface2);
+                Console.WriteLine("IPv6: " + address + " | DUT2 " + v["dut2"] + " target: " + target);
                 serial = v["dut2"];
                 command = mode == "ping" ? "ping6 -i 1 " + target : v["bin2"] + " " + ipv6Flag + " -c " + target + " -p " + v["port"] + " -f m -n " + v["amount"];
             }

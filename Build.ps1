@@ -10,6 +10,6 @@ $arguments = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/cod
 & $compiler $arguments $sources
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 $nanOutput = Join-Path $outputDirectory 'TerminalGridNan.exe'
-& $compiler /nologo /target:exe /platform:x64 /optimize+ /codepage:65001 "/out:$nanOutput" /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'source\Config.cs') (Join-Path $PSScriptRoot 'source\nan\NanRunner.cs')
+& $compiler /nologo /target:exe /platform:x64 /optimize+ /codepage:65001 "/out:$nanOutput" /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'source\Config.cs') (Join-Path $PSScriptRoot 'source\TargetDiscovery.cs') (Join-Path $PSScriptRoot 'source\nan\NanRunner.cs')
 if ($LASTEXITCODE -ne 0) { throw 'NAN helper build failed.' }
 Write-Host "Built: $OutputPath"

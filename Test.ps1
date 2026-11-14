@@ -52,7 +52,7 @@ try {
     Invoke-CheckedNative -Executable $targetTest -Arguments @()
     New-Item -ItemType Directory -Path (Join-Path $testWork 'nan-tools') -Force | Out-Null
     $nanFake = Build-Test -Name 'nan-tools\adb' -Sources @('tests\NanFakeAdb.cs') -References @('System.dll')
-    $nanSources = @('source\Config.cs', 'source\nan\NanRunner.cs')
+    $nanSources = @('source\Config.cs', 'source\TargetDiscovery.cs', 'source\nan\NanRunner.cs')
     $nanRefs = @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
     $nanRunner = Build-Test -Name 'NanRunner' -Sources $nanSources -References $nanRefs
     $nanTest = Build-Test -Name 'NanRunnerTests' -Sources ($nanSources + 'tests\NanRunnerTests.cs') -References $nanRefs -EntryPoint 'NanRunnerTests'

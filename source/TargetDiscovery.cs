@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace TerminalGridIntegrated
@@ -21,6 +23,7 @@ namespace TerminalGridIntegrated
         // command as an invalid scope.
         public string interfaceName { get; set; }
         public int interfaceIndex { get; set; }
+        public string serial { get; set; }
     }
     public sealed class TargetDiscoveryResult
     {
@@ -29,6 +32,37 @@ namespace TerminalGridIntegrated
     }
     public static class TargetDiscovery
     {
+        public static List<TargetCandidate> AndroidAddresses(string text, string serial)
+        {
+            var result = new List<TargetCandidate>();
+            string iface = null;
+            foreach (string line in (text ?? "").Split('\n').Take(4096))
+            {
+                var heading = Regex.Match(line, @"^\s*\d+:\s+([A-Za-z0-9_.-]{1,32})(?:@[^:\s]+)?:");
+                if (heading.Success) iface = heading.Groups[1].Value;
+                if (String.IsNullOrEmpty(iface) || iface == "lo" || Regex.IsMatch(line, @"\b(tentative|dadfailed)\b")) continue;
+                var address = Regex.Match(line, @"\binet6?\s+([0-9a-fA-F:.]+)/\d+");
+                IPAddress ip;
+                if (!address.Success || !IPAddress.TryParse(address.Groups[1].Value, out ip) || IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.IPv6Any)) continue;
+                result.Add(new TargetCandidate { value = ip.ToString(), interfaceName = iface, serial = serial,
+                    kind = "android", label = serial + " · " + iface + " · " + ip });
+            }
+            return result;
+        }
+        public static string AdbShell(string adb, string serial, string command)
+        {
+            string args = String.Join(" ", new[] { "-s", serial, "shell", command }.Select(ShellBuilder.Quote));
+            using (var process = new Process { StartInfo = new ProcessStartInfo(adb, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } })
+            {
+                process.Start();
+                var output = process.StandardOutput.ReadToEndAsync();
+                var error = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(5000)) { try { process.Kill(); } catch (InvalidOperationException) { } throw new TimeoutException("ADB query timed out."); }
+                if (!Task.WaitAll(new Task[] { output, error }, 1000)) throw new TimeoutException("ADB output timed out.");
+                if (process.ExitCode != 0) throw new InvalidOperationException("ADB query failed: " + error.Result.Trim());
+                return output.Result;
+            }
+        }
         public static List<TargetCandidate> ParseAdb(string text)
         {
             var result = new List<TargetCandidate>();
@@ -44,7 +78,7 @@ namespace TerminalGridIntegrated
             }
             return result;
         }
-        public static TargetDiscoveryResult Discover(string cwd)
+        public static TargetDiscoveryResult Discover(string cwd, bool android = false, string pathFolder = null)
         {
             var result = new TargetDiscoveryResult();
             try {
@@ -71,6 +105,18 @@ namespace TerminalGridIntegrated
                     }
                 }
             } catch (Exception) { result.message = "部分網卡資訊無法讀取。"; }
+            if (!String.IsNullOrWhiteSpace(pathFolder) && Directory.Exists(pathFolder))
+            {
+                try
+                {
+                    foreach (var path in Directory.EnumerateFileSystemEntries(pathFolder).Take(80))
+                        result.candidates.Add(new TargetCandidate { value = path, label = Path.GetFileName(path),
+                            kind = Directory.Exists(path) ? "folder" : Path.GetExtension(path).Equals(".apk", StringComparison.OrdinalIgnoreCase) ? "apk" : "file" });
+                    result.candidates.Add(new TargetCandidate { value = pathFolder, label = "終端啟動資料夾", kind = "folder" });
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
             string adb = null;
             if (!String.IsNullOrWhiteSpace(cwd)) {
                 try { string file = Path.Combine(cwd, "adb.exe"); if (File.Exists(file)) adb = Path.GetFullPath(file); } catch (ArgumentException) { }
@@ -87,6 +133,15 @@ namespace TerminalGridIntegrated
                         if (!result.candidates.Any(c => c.kind == "device")) result.message += " 沒有已授權且在線的 ADB 裝置，請確認 USB 偵錯授權或重新偵測。";
                     }
                     else result.message += " ADB 無法列出裝置，請確認偵錯授權或手動輸入。";
+                }
+                if (android) {
+                    var devices = result.candidates.Where(c => c.kind == "device").Select(c => c.value).Distinct().Take(8).ToArray();
+                    var queries = devices.Select(serial => Task.Run(delegate {
+                        try { return AndroidAddresses(AdbShell(adb, serial, "ip addr show"), serial); }
+                        catch (Exception) { return new List<TargetCandidate>(); }
+                    })).ToArray();
+                    Task.WaitAll(queries);
+                    foreach (var query in queries) result.candidates.AddRange(query.Result.Take(60));
                 }
             } catch (Exception) { result.message += " ADB 偵測失敗，可手動輸入或重新偵測。"; }
             return result;

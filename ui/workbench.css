@@ -85,3 +85,12 @@
 .transfer-dialog { width: min(520px, 90vw); }
 .transfer-pending { cursor: progress; }
 .transfer-pending::after { content: '正在移動終端…'; position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: #0c111955; color: #d4dfed; pointer-events: all; }
+.flow-conditions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.flow-conditions label { display: flex; gap: 5px; align-items: center; }
+.flow-conditions input[type="number"] { width: 85px; }
+.flow-conditions input:not([type]) { flex: 1; }
+.flow-step.flow-failed { border-color: #f1848d; }
+.pane.batch-selected { outline: 2px solid #7be0d4; outline-offset: -3px; }
+#flowLogPath { overflow-wrap: anywhere; }
+#terminalLogText { width: 100%; resize: vertical; margin: 10px 0; font: 12px Consolas, monospace; }
+#flowPauseDialog[open] { position: fixed; inset: auto 16px 32px auto; margin: 0; z-index: 12; }

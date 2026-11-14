@@ -10,7 +10,7 @@
       unavailableMessage = '';
       var buffer = terminal.buffer.active;
       if (buffer.type !== 'normal' || pending || waitingEcho || !options.isRunning()) return null;
-      if (['CMD', 'PowerShell', 'PowerShell 7'].indexOf(options.getShell()) < 0) return null;
+      if (['CMD', 'PowerShell', 'PowerShell 7', 'Android'].indexOf(options.getShell()) < 0) return null;
       var cursorRow = buffer.baseY + buffer.cursorY, first = cursorRow, last = cursorRow;
       while (first > 0 && buffer.getLine(first).isWrapped) first--;
       while (last + 1 < buffer.length && buffer.getLine(last + 1).isWrapped) last++;
@@ -54,15 +54,23 @@
       }
       // Windows paths cannot contain >. Keep the actual prompt out of the
       // editable range, including CJK/wide characters in a folder name.
-      var prompt = /^(?:PS )?(?:[A-Za-z]:\\|\\\\)[^>\r\n]*>/.exec(text);
+      var android = /^[A-Za-z0-9_.-]+:\/[^\r\n]*? [#$] /.exec(text);
+      var prompt = android || /^(?:PS )?(?:[A-Za-z]:\\|\\\\)[^>\r\n]*>/.exec(text);
+      if (options.getShell() === 'Android' && !android) return null;
       if (!prompt) return null;
       var prefix = prompt[0];
       if (prefix.indexOf('PS ') === 0 && text[prefix.length] === ' ') prefix += ' ';
       var command = text.slice(prefix.length), offset = cursor - prefix.length;
-      // Cursor movement in CMD/PSReadLine differs for grapheme clusters. This
-      // path deliberately supports ASCII commands; native editor stays Unicode.
-      if (!command || command.length > 16000 || /[^\x20-\x7e]/.test(command) || offset < 0 || offset > command.length) return null;
-      return { command: command, cursor: offset, prefix: prefix, first: first, cols: terminal.cols, points: points };
+      // Wide BMP characters occupy one shell character. Combining sequences
+      // and surrogate pairs have shell-dependent cursor behavior.
+      if (!command || command.length > 16000 || !editableText(command) || offset < 0 || offset > command.length) return null;
+      // mksh can horizontally scroll a long line. A leading prompt confirms
+      // the left boundary; the right boundary must also fit on screen.
+      if (android && (first !== last || text.length >= points[cursorRow + ':' + (terminal.cols - 2)])) return null;
+      return { command: command, cursor: offset, prefix: prefix, first: first, cols: terminal.cols, points: points, android: !!android };
+    }
+    function editableText(text) {
+      return !/[\x00-\x1f\x7f-\x9f\ud800-\udfff\p{M}\p{Cf}\p{Zl}\p{Zp}]/u.test(text) && !/[^\u0000-\uffff]/u.test(text);
     }
     function capture() {
       var screen = read(), range = terminal.getSelectionPosition();
@@ -80,8 +88,8 @@
         start: start, end: end, selected: screen.command.slice(start, end) };
     }
     function replace(saved, value) {
-      if (typeof value !== 'string' || /[^\x20-\x7e]/.test(value) || value.length > 16000) {
-        return { ok: false, message: '原位替換目前支援單行英文、數字及符號；其他文字請先在輸入列編輯。' };
+      if (typeof value !== 'string' || !editableText(value) || value.length > 16000) {
+        return { ok: false, message: '多行、控制字元、組合字或表情符號請先在輸入列編輯。' };
       }
       var current = read();
       if (!saved || !current || saved.revision !== revision || saved.generation !== options.getGeneration() ||
@@ -103,6 +111,15 @@
       return { ok: true, command: current.command.slice(0, saved.start) + value + current.command.slice(saved.end) };
     }
     return { capture: capture, replace: replace, reset: reset,
+      navigation: function (event) {
+        var current = read();
+        if (!current || !current.android) return null;
+        if (event.key === 'Home' && !event.ctrlKey) return '\x01';
+        if (event.key === 'End' && !event.ctrlKey) return '\x05';
+        if (event.ctrlKey && event.key === 'ArrowLeft') return '\x1bb';
+        if (event.ctrlKey && event.key === 'ArrowRight') return '\x1bf';
+        return null;
+      },
       getUnavailableMessage: function () { return unavailableMessage; },
       input: function (data) {
         var known = read();
@@ -113,11 +130,13 @@
           var values = [], prefix = expectedEdit.prefix;
           expectedEdit.values.forEach(function (v) {
             var c = v.cursor, t = v.text;
-            if (typeof data === 'string' && /^[\x20-\x7e]+$/.test(data)) {
+            if (typeof data === 'string' && data && editableText(data)) {
               values.push({ text: t.slice(0, c) + data + t.slice(c), cursor: c + data.length });
               values.push({ text: t.slice(0, c) + data + t.slice(c + data.length), cursor: c + data.length });
             } else if (data === '\x1b[D') values.push({ text: t, cursor: Math.max(prefix, c - 1) });
             else if (data === '\x1b[C') values.push({ text: t, cursor: Math.min(t.length, c + 1) });
+            else if (data === '\x01' || data === '\x1b[H' || data === '\x1b[1~') values.push({ text: t, cursor: prefix });
+            else if (data === '\x05' || data === '\x1b[F' || data === '\x1b[4~') values.push({ text: t, cursor: t.length });
             else if (data === '\x7f' && c > prefix) values.push({ text: t.slice(0, c - 1) + t.slice(c), cursor: c - 1 });
             else if (data === '\x1b[3~') values.push({ text: t.slice(0, c) + t.slice(c + 1), cursor: c });
           });

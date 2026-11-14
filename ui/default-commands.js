@@ -5,7 +5,9 @@
   function prepare(text) {
     return text.replace(/\bDEVICE_SERIAL\b/g, '{{SERIAL}}').replace(/\b192\.0\.2\.10\b/g, '{{TARGET_IPV4}}')
       .replace(/\b192\.0\.2\.20\b/g, '{{LOCAL_IPV4}}').replace(/2001:db8::10\b/g, '{{TARGET_IPV6}}')
-      .replace(/\bSERVER_IP\b/g, '{{TARGET_IP}}').replace(/\bLOCAL_IP\b/g, '{{LOCAL_IP}}').replace(/\bDEVICE_IP\b/g, '{{TARGET_IP}}');
+      .replace(/\bSERVER_IP\b/g, '{{TARGET_IP}}').replace(/\bLOCAL_IP\b/g, '{{LOCAL_IP}}').replace(/\bDEVICE_IP\b/g, '{{TARGET_IP}}')
+      .replace(/\{\{TARGET_IPV6\}\}%aware_data0\b/gi, '{{AWARE_IPV6}}')
+      .replace(/(?<![\w{])%aware_data0\b/gi, '{{AWARE_SCOPE}}');
   }
   function pack(id, name, rows) {
     packs.push({ id: '@default-' + id, name: 'Default · ' + name, builtin: true,
@@ -115,8 +117,10 @@
   pack('nan', 'NAN／NDP 雙手機', [
     ['裝置與序號', 'adb devices -l', '完整自動流程：自動化 → NAN／NDP 雙手機。'],
     ['手機互動 Shell', 'adb -s {{SERIAL}} shell', 'DUT1／DUT2 分別開一格，手動調整指令。'],
-    ['Aware IPv6', 'adb -s {{SERIAL}} shell ip -6 addr show dev aware_data0', '查詢指定手機 aware_data0；介面不同請修改。'],
-    ['Aware ifconfig', 'adb -s {{SERIAL}} shell ifconfig aware_data0', '只查 Aware 介面，避免誤選 wlan0 的 IP。'],
+    ['Aware IPv6', 'adb -s {{SERIAL}} shell ip -6 addr show dev {{AWARE_IFACE}}', '查詢指定手機的 Aware 介面。'],
+    ['Aware ifconfig', 'adb -s {{SERIAL}} shell ifconfig {{AWARE_IFACE}}', '只查 Aware 介面，避免誤選 wlan0 的 IP。'],
+    ['DUT2 Ping DUT1', 'adb -s {{SERIAL}} shell ping6 -c 4 {{AWARE_IPV6}}', '序號選 DUT2。IP 使用 DUT1 位址與 DUT2 發送介面。'],
+    ['DUT2 iperf3 Client', 'adb -s {{SERIAL}} shell iperf3 -6 -c {{AWARE_IPV6}} -n 1300M -f m', '先啟動 DUT1 server。序號選 DUT2。'],
     ['iperf3 版本', 'adb -s {{SERIAL}} shell iperf3 --version', '手機需先安裝；若不在 PATH，改填 /data/local/tmp/iperf3 等路徑。'],
     ['iperf3 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf3 -6 -s -p 5201', 'DUT1 前景 server，Ctrl+C 結束。Client／Ping 的動態 IPv6 請用雙手機流程。'],
     ['iperf 2 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf -V -s -p 5001', 'DUT1 server；兩端必須同為 iperf 2。'],
@@ -139,19 +143,35 @@
     TARGET_IP: ['遠端目標 IP', 'ip', ''], TARGET_IPV4: ['遠端目標 IPv4', 'ipv4', ''], TARGET_IPV6: ['遠端目標 IPv6（含 scope）', 'ipv6', ''],
     LOCAL_IP: ['本機綁定 IP', 'local', ''], LOCAL_IPV4: ['本機綁定 IPv4', 'local4', ''],
     LOCAL_SOURCE: ['本機來源檔案／資料夾', 'source', ''], LOCAL_FOLDER: ['本機目的資料夾', 'folder', ''],
+    AWARE_IPV6: ['DUT1 IPv6%發送端介面', 'aware', ''],
+    AWARE_SCOPE: ['Wi-Fi Aware scope（含 %）', 'scope', ''],
+    AWARE_IFACE: ['Wi-Fi Aware 介面', 'interface', ''],
     REMOTE_PATH: ['裝置路徑', 'text', '/sdcard/Download/test.dat']
   };
-  function quote(value, shell) {
+  function quote(value, shell, key) {
     if (!value || /[\x00-\x1f\x7f"]/.test(value)) throw Error('請填入單行路徑或參數，不可含雙引號。');
+    if (key === 'AWARE_IFACE' && !/^[A-Za-z0-9_.-]{1,32}$/.test(value)) throw Error('請填有效的 Android 介面名稱。');
+    if (key === 'AWARE_SCOPE' && !/^%[A-Za-z0-9_.-]{1,32}$/.test(value)) throw Error('請填 %aware_data0 形式的 scope。');
+    if (key === 'AWARE_IPV6' && !/^[a-f0-9:]+%[A-Za-z0-9_.-]{1,32}$/i.test(value)) throw Error('請填 IPv6%發送端介面。');
     if (shell === 'PowerShell' || shell === 'PowerShell 7') return "'" + value.replace(/'/g, "''") + "'";
     if (shell !== 'CMD') throw Error('路徑範本請使用 CMD 或 PowerShell 終端。');
-    if (/[%!]/.test(value)) throw Error('CMD 可能展開路徑中的 % 或 !；此路徑請改用 PowerShell。');
+    var scoped = ['TARGET_IPV6', 'TARGET_IP', 'LOCAL_IP', 'AWARE_IPV6'].includes(key) && /^[a-f0-9:]+%[A-Za-z0-9_.-]+$/i.test(value);
+    if (key === 'AWARE_SCOPE' && /^%[A-Za-z0-9_.-]+$/.test(value)) return value;
+    if (/[%!]/.test(value) && !scoped) throw Error('CMD 可能展開路徑中的 % 或 !；此路徑請改用 PowerShell。');
     // A quoted Windows directory ending in backslash needs no escaping for CMD built-ins,
     // but adb/scrcpy use CRT-style parsing: remove a trailing separator except drive roots.
     if (/\\$/.test(value)) value = value.replace(/\\+$/, '') + '\\.';
     return '"' + value + '"';
   }
   function keys(text) { return Array.from(new Set((text.match(/\{\{[A-Z][A-Z0-9_]*\}\}/g) || []).map(function (s) { return s.slice(2, -2); }))).filter(function (k) { return fields[k]; }); }
-  function resolve(text, values, shell) { return text.replace(/\{\{([A-Z][A-Z0-9_]*)\}\}/g, function (_, key) { if (!fields[key]) throw Error('未知範本欄位：' + key); return quote(values[key], shell); }); }
+  function resolve(text, values, shell) {
+    var scopes = 0;
+    return text.replace(/\{\{([A-Z][A-Z0-9_]*)\}\}/g, function (_, key) {
+      if (!fields[key]) throw Error('未知範本欄位：' + key);
+      if (shell === 'CMD' && (values[key] || '').includes('%') && (++scopes > 1 || text.replace(/\{\{[A-Z][A-Z0-9_]*\}\}/g, '').includes('%')))
+        throw Error('CMD 指令包含多個 %，請使用 PowerShell。');
+      return quote(values[key], shell, key);
+    });
+  }
   root.TerminalGridDefaults = { packs: packs, fields: fields, keys: keys, resolve: resolve, prepare: prepare };
 }(typeof window === 'undefined' ? globalThis : window));

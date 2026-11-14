@@ -87,12 +87,14 @@
       <p class="help-note">建立六格工作區與可編輯、可另存的流程。scrcpy → 等待 APK 建立 NDP → 即時查 DUT1 IPv6 → DUT2 持續 ping6 → 確認後傳流量。</p>
       <button id="nanDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="nanStatus" role="status" class="help-note"></p>
       <div class="form-two"><label class="field">DUT1 · Server<input id="nanDut1" list="nanDevices" required placeholder="序號"></label><label class="field">DUT2 · Client<input id="nanDut2" list="nanDevices" required placeholder="另一台序號"></label></div><datalist id="nanDevices"></datalist>
-      <div class="form-two"><label class="field">DUT1 查詢介面<input id="nanIf1" value="aware_data0" required></label><label class="field">DUT2 發送介面（scope）<input id="nanIf2" value="aware_data0" required></label></div>
+      <div class="form-two"><label class="field">DUT1 查詢介面<input id="nanIf1" list="nanInterfaces" value="auto" required></label><label class="field">DUT2 發送介面（scope）<input id="nanIf2" list="nanInterfaces" value="auto" required></label></div>
+      <datalist id="nanInterfaces"><option value="auto">自動偵測（建立 NDP 後）</option></datalist>
+      <label><input id="nanRecovery" type="checkbox"> 加入 NDP 中斷、USB 重插與重建驗收</label>
       <div class="form-two"><label class="field">測試模式<select id="nanTool"><option value="iperf3">iperf3 流量</option><option value="iperf">iperf 2 流量</option><option value="share">Quick Share · 手動傳檔＋Ping</option></select></label><label class="field">傳輸量（-n）<input id="nanAmount" value="1300M" required></label></div>
       <div class="form-two"><label class="field">DUT1 工具名稱／Android 路徑<input id="nanBin1" value="iperf3" required></label><label class="field">DUT2 工具名稱／Android 路徑<input id="nanBin2" value="iperf3" required></label></div>
       <label class="field">Port<input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
       <label class="field">本機 adb／scrcpy 資料夾（留空使用 PATH）<div class="folder-input-row"><input id="nanFolder" placeholder="例如 D:\Tools\scrcpy"><button id="nanBrowse" type="button" class="button">選資料夾…</button></div></label>
-      <p class="help-note">IPv6 在按繼續後才查詢；每次重新啟動 Ping／Traffic 都重新查詢。% 後使用 DUT2 的 Android 介面名稱。手機需已安裝可執行的 iperf，兩端版本系列須相同。1300M 為 1,363,148,800 bytes；精確 1.3 GB 可填 1300000000。</p>
+      <p class="help-note">介面填 auto 時，建立 NDP 後偵測兩端 Wi-Fi Aware 介面。每次重啟 Ping／Traffic 都重新查 DUT1 IPv6。% 後使用 DUT2 發送介面。若有多個候選，請手動指定。手機兩端需已有相同系列的 iperf。</p>
       <p class="help-note">Ping、Server 在流量結束後保留，可用 Ctrl+C／停止該格結束。Ping 有助維持活動流量，但無法保證 APK 不釋放 NDP。Quick Share 由使用者操作，實際連線路徑依手機決定。</p>
     </div><div class="modal-actions"><button type="button" class="button quiet" data-close="nanDialog">取消</button><button type="submit" class="button primary">建立工作區與流程</button></div>
   </form></dialog>
@@ -107,6 +109,37 @@
   <script src="nan-workflow.js"></script>
   <script src="help.js"></script>
   <script src="pane-transfer.js"></script>
+  <dialog id="evidenceDialog" class="modal" aria-labelledby="evidenceTitle">
+    <form id="evidenceForm">
+      <div class="modal-heading"><h2 id="evidenceTitle">快速截圖</h2><button type="button" class="icon-button" data-close="evidenceDialog" aria-label="關閉">×</button></div>
+      <div class="modal-content">
+        <div class="form-two">
+          <label class="field">Excel 工作表<input id="evidenceSheet" maxlength="100" required></label>
+          <label class="field">TC 編號<input id="evidenceTc" maxlength="100" required></label>
+          <label class="field">判定<select id="evidenceResult"><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="待確認" selected>待確認</option></select></label>
+          <label class="field">吞吐量<input id="evidenceRate" maxlength="100" placeholder="例如 941 Mbits/sec"></label>
+        </div>
+        <p id="evidenceStatus" role="status"></p>
+      </div>
+      <div class="modal-actions"><button type="submit" id="saveEvidenceButton" class="button primary" disabled>儲存 PNG ＋ .log</button></div>
+    </form>
+  </dialog>
+  <dialog id="terminalLogDialog" class="modal" aria-labelledby="terminalLogTitle">
+    <div class="modal-heading"><h2 id="terminalLogTitle">終端 Log</h2><button type="button" class="icon-button" data-close="terminalLogDialog" aria-label="關閉">×</button></div>
+    <div class="modal-content">
+      <div class="folder-input-row"><input id="terminalLogQuery" placeholder="輸入要搜尋的文字"><button id="findTerminalLog" class="button">找下一筆</button></div>
+      <textarea id="terminalLogText" rows="14" readonly aria-label="終端輸出紀錄"></textarea>
+      <div class="folder-input-row"><input id="terminalLogNote" maxlength="200" placeholder="新增時間標記及備註"><button id="markTerminalLog" class="button">加入標記</button></div>
+      <p id="terminalRecordingPath" class="help-note"></p>
+    </div>
+    <div class="modal-actions"><button id="toggleTerminalRecording" class="button">開始錄製完整 Log</button><button id="clearTerminalScreen" class="button">清除畫面</button><button id="exportTerminalLog" class="button primary">匯出 .log</button></div>
+  </dialog>
+  <dialog id="paneHistoryDialog" class="modal" aria-labelledby="paneHistoryTitle">
+    <div class="modal-heading"><h2 id="paneHistoryTitle">最近格子操作</h2><button type="button" class="icon-button" data-close="paneHistoryDialog" aria-label="關閉">×</button></div>
+    <div class="modal-content"><ol id="paneHistoryList"></ol></div>
+    <div class="modal-actions"><button id="undoPaneButton" class="button">復原上一次操作</button></div>
+  </dialog>
+  <script src="flow-output.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

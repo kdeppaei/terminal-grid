@@ -6,8 +6,8 @@ class NanRunnerTests {
     static int count;
     static void Check(bool pass, string label) { if (!pass) throw new Exception(label); count++; }
     static void Reject(Action action) { try { action(); } catch (Exception) { count++; return; } throw new Exception("Expected rejection"); }
-    static void Run(string runner, string folder, string mode, string tool, string scenario, string expected, int code) {
-        string[] args = { "--mode", mode, "--dut1", "DUT_ONE", "--dut2", "DUT_TWO", "--if1", "aware_data1", "--if2", "aware_data0", "--tool", tool, "--bin1", "/data/local/tmp/" + tool, "--bin2", "/data/local/tmp/" + tool, "--amount", "1300M", "--port", tool == "iperf3" ? "5201" : "5001", "--folder", folder };
+    static void Run(string runner, string folder, string mode, string tool, string scenario, string expected, int code, bool auto = false) {
+        string[] args = { "--mode", mode, "--dut1", "DUT_ONE", "--dut2", "DUT_TWO", "--if1", auto ? "auto" : "aware_data1", "--if2", auto ? "auto" : "aware_data0", "--tool", tool, "--bin1", "/data/local/tmp/" + tool, "--bin2", "/data/local/tmp/" + tool, "--amount", "1300M", "--port", tool == "iperf3" ? "5201" : "5001", "--folder", folder };
         var si = new ProcessStartInfo(runner, String.Join(" ", args.Select(ShellBuilder.Quote))) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         si.EnvironmentVariables["TGRID_NAN_CASE"] = scenario;
         using (var p = Process.Start(si)) {
@@ -34,6 +34,8 @@ class NanRunnerTests {
         Run(args[0], args[1], "server", "iperf3", "ok", "EXEC DUT_ONE -tt /data/local/tmp/iperf3 -6 -s -p 5201", 0);
         Run(args[0], args[1], "traffic", "iperf3", "offline", "device offline", 1);
         Run(args[0], args[1], "ping", "iperf3", "exit", "EXEC DUT_TWO", 7);
+        Run(args[0], args[1], "traffic", "iperf3", "changed", "EXEC DUT_TWO -tt /data/local/tmp/iperf3 -6 -c fe80::2222%aware_data7", 0, true);
+        Run(args[0], args[1], "traffic", "iperf3", "ambiguous", "Multiple Wi-Fi Aware interfaces", 1, true);
         Console.WriteLine("NAN: " + count + " assertions; fixture ADB processes, no phones or network used."); return 0;
     }
 }

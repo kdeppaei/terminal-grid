@@ -36,6 +36,21 @@ async function main(){
  assert.equal(await pane('two',0).locator('.terminal-tab').count(),1);assert.equal(await page.evaluate(()=>fixture.messages.filter(m=>m.type==='stop').length),1);count++;
  await title('two',0).click({button:'right'});await menu.getByRole('button',{name:'關閉並移除此分頁…',exact:true}).click();await page.locator('#confirmAccept').click();
  assert.equal(await pane('two',0).locator('.terminal-tab').count(),1);assert.equal(await pane('two',0).locator('.pane-name').innerText(),'終端 1');assert.deepEqual(errors,[]);count++;
+ await title('two',0).click();await page.keyboard.press('Control+z');
+ assert.equal(await pane('two',0).locator('.pane-name').innerText(),'終端 01');
+ await title('two',0).click();await page.keyboard.press('Control+z');
+ assert.equal(await pane('two',0).locator('.pane-name').innerText(),'Server');
+ assert.equal(await page.evaluate(()=>fixture.messages.filter(m=>m.type==='start').length),0);count++;
+ await title('two',0).click({modifiers:['Control']});await title('two',1).click({modifiers:['Control']});
+ assert.equal(await page.locator('.pane.batch-selected').count(),2);
+ await title('two',0).click({button:'right'});
+ await menu.getByRole('button',{name:'複製所選格的有效分頁（2）',exact:true}).click();
+ await page.locator('.workspace-tab[data-workspace-id="one"]').click();
+ const previousTabs=await pane('one',1).locator('.terminal-tab').count();
+ await title('one',1).click({button:'right'});await menu.getByRole('button',{name:'在此格貼上分頁設定',exact:true}).click();
+ assert.equal(await pane('one',1).locator('.terminal-tab').count(),previousTabs+2);
+ await title('one',1).click();await page.keyboard.press('Control+z');
+ assert.equal(await pane('one',1).locator('.terminal-tab').count(),previousTabs);count++;
  console.log('Pane transfer UI: '+count+' mouse/menu, running state, stable routing, copy, cross-workspace, cut/paste and rejection checks passed.');
  }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));}
 }main().catch(e=>{console.error(e);process.exitCode=1;});

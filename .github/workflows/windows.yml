@@ -36,6 +36,9 @@ jobs:
       - name: Test NAN workflow generation
         shell: pwsh
         run: node ./tests/NanWorkflowTests.js
+      - name: Test output matching and iperf evidence
+        shell: pwsh
+        run: node ./tests/FlowOutputTests.js
       - name: Package Windows release
         shell: pwsh
         run: ./Package.ps1 -SkipBuild
