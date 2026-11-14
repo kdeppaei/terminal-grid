@@ -60,14 +60,20 @@ class AdbFilesTests {
             try { new AdbFiles(Path.Combine(root, "missing.exe"), "PHONE_TEST", backups, CancellationToken.None).Read(path); throw new Exception("Missing executable started"); }
             catch (System.ComponentModel.Win32Exception) { }
         };
-        missingExecutable(); // Warm localized exception resources before handle measurement.
-        using (var self = Process.GetCurrentProcess()) {
-            GC.Collect(); GC.WaitForPendingFinalizers();
-            self.Refresh(); int handles = self.HandleCount;
+        Action readBatch = () => {
             for (int i = 0; i < 10; i++) {
                 client.Read(path);
                 missingExecutable();
             }
+        };
+        // Warm asynchronous pipe reads, the thread pool and localized
+        // exception resources before checking for growth across batches.
+        readBatch();
+        using (var self = Process.GetCurrentProcess()) {
+            GC.Collect(); GC.WaitForPendingFinalizers();
+            self.Refresh(); int handles = self.HandleCount;
+            readBatch();
+            readBatch();
             GC.Collect(); GC.WaitForPendingFinalizers();
             self.Refresh(); Check(self.HandleCount <= handles + 4, "pipe handles released after reads and failed launches: " + handles + " -> " + self.HandleCount);
         }
