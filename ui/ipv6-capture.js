@@ -49,13 +49,13 @@
 
   function interfaceFromLine(line) {
     var match = /^\s*\d+:\s+([^\s:]+):\s*/.exec(line);
-    if (match) return match[1].split('@')[0].slice(0, 128);
+    if (match) return { name: match[1].split('@')[0].slice(0, 128), unix: true };
     match = /^\s*([^\s:]+):?\s+(?:flags(?:=|\s)|Link encap:)/i.exec(line);
-    if (match) return match[1].slice(0, 128);
+    if (match) return { name: match[1].slice(0, 128), unix: true };
     // Common English and Chinese ipconfig adapter headings. Other localized
     // headings can still yield addresses, with no inferred interface metadata.
     match = /(?:\badapter\s+|介面卡\s*|網路卡\s*|网适配器\s*|适配器\s*|適配器\s*|網卡\s*|网卡\s*)([^:：]+)[:：]\s*$/i.exec(line);
-    return match ? match[1].trim().slice(0, 128) : null;
+    return match ? { name: match[1].trim().slice(0, 128) } : null;
   }
 
   function extractLine(line, interfaceName) {
@@ -79,14 +79,19 @@
     return result;
   }
 
-  function createScanner(onEntry) {
+  function createScanner(onEntry, onScope) {
     if (typeof onEntry !== 'function') throw new TypeError('An IPv6 entry callback is required.');
     var line = '', overflow = false, state = 'text', interfaceName = '';
 
     function finishLine() {
       if (!overflow) {
         var nextInterface = interfaceFromLine(line);
-        if (nextInterface !== null) interfaceName = nextInterface;
+        if (nextInterface !== null) {
+          interfaceName = nextInterface.name;
+          if (onScope && nextInterface.unix && /^aware[_-]data\d{1,22}$/.test(interfaceName)) {
+            onScope({ address: '%' + interfaceName, interfaceName: interfaceName, kind: 'scope' });
+          }
+        }
         // A fresh command/prompt must not inherit an earlier command's interface.
         if (/[>$#]\s*(?:(?:adb\b.*?\bshell\s+)?(?:ifconfig|ipconfig)\b|ip\s+-6\s+(?:addr|address)\b)/i.test(line)) interfaceName = '';
         extractLine(line, interfaceName).forEach(onEntry);

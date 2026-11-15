@@ -18,7 +18,9 @@
   var activeRun = null, lastRun = null, failedFlowStep = null;
   var evidence = null, logState = null;
   var paneHistory = [], selectedPanes = new Map();
-  var completionMenu, completionHistory = [], completionCatalog, completionCommands = [];
+  var completionMenu, completionHistory = [], completionCatalog, completionCommands = [], completionLiterals = [];
+  var personalPackId = 'personal-favorites';
+  var commandDragType = 'application/x-terminalgrid-command', literalDragType = 'application/x-terminalgrid-literal';
   function discoverNanDevices() {
     if (!hostReady || !activeView) return;
     var state = focused ? focused.state : activeState(activeView, 0);
@@ -41,7 +43,14 @@
       var seen = new Set();
       var candidates = targetCandidates.concat(capturedValues.map(function (v) { return { value: v.address, label: '暫存 · ' + v.address, kind: 'saved' }; }));
       var aware = targetCandidates.filter(function (c) { return c.kind === 'android' && /^aware[_-]data\d+$/i.test(c.interfaceName); });
-      if (kind === 'scope') candidates = aware.map(function (c) { return { value: '%' + c.interfaceName, label: c.serial + ' · %' + c.interfaceName }; });
+      if (kind === 'scope') {
+        var serialInput = $('pathCommandFields').querySelector('[data-path-key="SERIAL"]');
+        candidates = aware.filter(function (c) { return !serialInput || !serialInput.value || c.serial === serialInput.value; })
+          .map(function (c) { return { value: '%' + c.interfaceName, label: c.serial + ' · %' + c.interfaceName }; });
+        capturedValues.filter(function (item) { return item.kind === 'scope'; }).forEach(function (item) {
+          candidates.push({ value: item.address, label: item.source + ' · ' + item.address });
+        });
+      }
       if (kind === 'interface') {
         var selectedDevice = $('pathCommandFields').querySelector('[data-path-key="SERIAL"]');
         candidates = aware.filter(function (c) { return !selectedDevice || !selectedDevice.value || c.serial === selectedDevice.value; })
@@ -172,10 +181,13 @@
   function completionSources() {
     if (completionCatalog !== appConfig.commandPacks) {
       completionCatalog = appConfig.commandPacks;
-      var commands = allCommandPacks().flatMap(function (pack) { return pack.commands.map(function (item) { return item.command.slice(0, 512); }); });
-      completionCommands = window.TerminalGridCompletion.catalog(commands);
+      var items = allCommandPacks().flatMap(function (pack) { return pack.commands; });
+      completionCommands = window.TerminalGridCompletion.catalog(items.filter(function (item) { return !item.literal; })
+        .map(function (item) { return item.command.slice(0, 512); }));
+      completionLiterals = items.filter(function (item) { return item.literal && validLineText(item.command); })
+        .map(function (item) { return { address: item.command, kind: 'literal' }; });
     }
-    return { commands: completionCommands, history: completionHistory, values: capturedValues };
+    return { commands: completionCommands, history: completionHistory, values: capturedValues.concat(completionLiterals) };
   }
   function rememberCommand(command) {
     if (!completionEnabled()) return;
@@ -184,9 +196,9 @@
     completionHistory = [command].concat(completionHistory.filter(function (item) { return item !== command; })).slice(0, 120);
   }
   function completionEnabled() { return $('smartCompletion').checked; }
-  function attachCommandCompletion(input, editor) {
+  function attachCommandCompletion(input, editor, state) {
     return window.TerminalGridCompletion.attachEditor(input, { menu: completionMenu, enabled: completionEnabled, sources: completionSources,
-      snippets: true, apply: editor.replaceRange, isMenuOpen: editor.isMenuOpen });
+      snippets: true, terminal: state, apply: editor.replaceRange, isMenuOpen: editor.isMenuOpen });
   }
   function attachReplacementCompletion(input, selected) {
     var completion = window.TerminalGridCompletion.attachEditor(input, {
@@ -319,7 +331,7 @@
         commands: (Array.isArray(p.commands) ? p.commands : []).slice(0, 128).map(function (c) {
           c = c || {};
           return { id: str(c.id, 64) || uid('cmd'), name: str(c.name, 80).trim() || '常用指令',
-            description: str(c.description, 240), command: str(c.command, 16000) };
+            description: str(c.description, 240), command: str(c.command, 16000), literal: c.literal === true };
         }) };
     }) : [];
     if (!packs.length) packs.push({ id: uid('pack'), name: '網路測試常用指令', commands: [
@@ -390,7 +402,8 @@
   }
   function resetCaptureScanner(state) {
     state.captureDecoder = new TextDecoder('utf-8');
-    state.captureScanner = window.TerminalGridIPv6.createScanner(function (entry) { recordCapture(state, entry); });
+    function capture(entry) { recordCapture(state, entry); }
+    state.captureScanner = window.TerminalGridIPv6.createScanner(capture, capture);
   }
   function resetTerminalRecords(state) {
     state.transcript = window.TerminalGridFlowOutput.create();
@@ -405,7 +418,7 @@
     if (!workspace || !tab) return;
     var key = [state.workspaceId, state.slot, state.tabId, entry.interfaceName, entry.address.toLowerCase()].join('|');
     capturedValues = capturedValues.filter(function (item) { return item.key !== key; });
-    capturedValues.unshift({ key: key, address: entry.address, interfaceName: entry.interfaceName,
+    capturedValues.unshift({ key: key, address: entry.address, interfaceName: entry.interfaceName, kind: entry.kind,
       workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, generation: state.generation,
       source: workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name,
       seen: new Date() });
@@ -465,7 +478,9 @@
     copy.addEventListener('click', function () { menu.hidden = true; copyCapture(item); });
     var replace = document.createElement('button'); replace.type = 'button'; replace.textContent = '替換目前框選文字';
     replace.addEventListener('click', function () { menu.hidden = true; replaceFocusedText(item.address); });
-    menu.append(copy, replace); positionContextMenu(menu, event.clientX, event.clientY);
+    var save = document.createElement('button'); save.type = 'button'; save.textContent = '儲存為常用文字片段…';
+    save.addEventListener('click', function () { menu.hidden = true; addCommand(item.address); });
+    menu.append(copy, replace, save); positionContextMenu(menu, event.clientX, event.clientY);
   }
   function positionContextMenu(menu, x, y) {
     x = Number.isFinite(x) ? x : 8; y = Number.isFinite(y) ? y : 8;
@@ -479,7 +494,7 @@
     capturedValues.forEach(function (item, index) {
       var row = document.createElement('article'); row.className = 'capture-item'; row.draggable = true; row.dataset.address = item.address;
       var top = document.createElement('div'); top.className = 'capture-item-heading';
-      var label = document.createElement('span'); label.textContent = index === 0 ? '最新擷取' : '擷取紀錄';
+      var label = document.createElement('span'); label.textContent = item.kind === 'scope' ? 'Wi-Fi Aware 介面' : index === 0 ? '最新擷取' : '擷取紀錄';
       var time = document.createElement('time'); time.dateTime = item.seen.toISOString(); time.textContent = item.seen.toLocaleTimeString('zh-TW', { hour12: false }); time.title = item.seen.toLocaleString('zh-TW');
       top.append(label, time);
       var address = document.createElement('code'); address.className = 'capture-address'; address.textContent = item.address;
@@ -585,7 +600,7 @@
     state.lineEditor = window.TerminalGridTextEdit.attach(input, {
       getValues: function () { return capturedValues; }, onStatus: showToast, attachReplacementCompletion: attachReplacementCompletion
     });
-    state.lineCompletion = attachCommandCompletion(input, state.lineEditor);
+    state.lineCompletion = attachCommandCompletion(input, state.lineEditor, state);
     input.addEventListener('focus', function () { focusedEditor = { state: state }; });
     function deliver(enter) {
       if (!hostReady || !sameSession(state, state.generation)) { showToast('請先啟動這個終端分頁。'); return; }
@@ -775,14 +790,20 @@
       if (event.target.closest('button[data-action="start"]')) { startSlot(getView(state.workspaceId), state.slot, state.tabId, false); return; }
       markFocused(getView(state.workspaceId), state.slot, state.tabId);
     });
-    mount.addEventListener('dragover', function (event) { if (hasDataType(event.dataTransfer, 'application/x-terminalgrid-command') || hasDataType(event.dataTransfer, 'application/x-terminalgrid-value')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } });
+    mount.addEventListener('dragover', function (event) {
+      if ([commandDragType, literalDragType, 'application/x-terminalgrid-value'].some(function (type) { return hasDataType(event.dataTransfer, type); })) {
+        event.preventDefault(); event.dataTransfer.dropEffect = 'copy';
+      }
+    });
     mount.addEventListener('drop', function (event) {
       var captured = hasDataType(event.dataTransfer, 'application/x-terminalgrid-value');
-      var value = event.dataTransfer && event.dataTransfer.getData(captured ? 'application/x-terminalgrid-value' : 'application/x-terminalgrid-command');
-      if (!value || (!captured && !hasDataType(event.dataTransfer, 'application/x-terminalgrid-command'))) return;
+      var literal = hasDataType(event.dataTransfer, literalDragType);
+      var value = event.dataTransfer && event.dataTransfer.getData(captured ? 'application/x-terminalgrid-value' : literal ? literalDragType : commandDragType);
+      if (!value) return;
       event.preventDefault(); event.stopPropagation();
       if (captured && !validCaptureText(value)) return;
-      markFocused(getView(state.workspaceId), state.slot, state.tabId); insertCommand(state, value, captured);
+      if (literal && !validLineText(value)) return;
+      markFocused(getView(state.workspaceId), state.slot, state.tabId); insertCommand(state, value, captured, literal);
     });
     if (terminal.textarea) terminal.textarea.setAttribute('aria-label', '第 ' + (slot + 1) + ' 格 ' + tabConfig.name + ' 可操作終端');
     return state;
@@ -796,7 +817,7 @@
       if (explicit) showToast('無法辨識目前指令。可在下方輸入列或指令草稿按 Ctrl+Space。');
       return;
     }
-    var context = { value: saved.command, start: selected ? saved.start : saved.cursor, end: selected ? saved.end : saved.cursor };
+    var context = { value: saved.command, start: selected ? saved.start : saved.cursor, end: selected ? saved.end : saved.cursor, terminal: state };
     var choices = window.TerminalGridCompletion.suggestions(context, completionSources(), explicit);
     state.rawCompletion.explicit = explicit;
     if (!completionMenu.show(state.rawCompletion, saved, choices) && explicit) showToast('目前沒有相符的建議。');
@@ -1745,37 +1766,55 @@
     appConfig.automations = appConfig.automations.filter(function (f) { return f !== flow; }); currentFlowId = null;
     renderFlowOptions(); queueSave();
   }
-  function renderCommandLibrary() {
+  function renderCommandLibrary(packId) {
     completionCatalog = null;
     if (!$('commandPackSelect')) return;
-    var select = $('commandPackSelect'), previous = select.value; select.textContent = '';
+    var select = $('commandPackSelect'), previous = typeof packId === 'string' ? packId : select.value; select.textContent = '';
     allCommandPacks().forEach(function (pack) { select.add(new Option(pack.name, pack.id)); });
     if (!appConfig.commandPacks.length) select.add(new Option('（無指令包）', ''));
     if (allCommandPacks().some(function (p) { return p.id === previous; })) select.value = previous;
     var pack = allCommandPacks().find(function (p) { return p.id === select.value; });
     $('renamePackButton').disabled = !pack || pack.builtin; $('duplicatePackButton').disabled = !pack || appConfig.commandPacks.length >= 32;
     $('deletePackButton').disabled = !pack || pack.builtin || appConfig.commandPacks.length <= 1;
-    $('addCommandButton').disabled = !pack || pack.builtin || pack.commands.length >= 128; $('exportPackButton').disabled = !pack;
+    var target = pack && !pack.builtin ? pack : quickCommandPack();
+    $('addCommandButton').disabled = !target || target.commands.length >= 128;
+    $('addCommandButton').title = target ? '儲存到「' + target.name + '」' : '個人指令包已滿';
+    $('exportPackButton').disabled = !pack;
     var list = $('commandList'); list.textContent = '';
     if (!pack || !pack.commands.length) { list.innerHTML = '<p class="help-note">此指令包目前是空的。可新增指令或匯入 .tgridcmd。</p>'; return; }
     pack.commands.forEach(function (command) {
       var item = document.createElement('div'); item.className = 'command-item'; item.draggable = true;
       var details = document.createElement('div'); details.className = 'command-details';
       var title = document.createElement('strong'); title.textContent = command.name;
-      var desc = document.createElement('span'); desc.textContent = command.description || command.command;
+      var desc = document.createElement('span'); desc.textContent = (command.literal ? '文字片段' + (command.description ? ' · ' + command.description : '') : command.description || command.command);
       var code = document.createElement('code'); code.textContent = command.command;
       details.append(title, desc, code);
       var insert = document.createElement('button'); insert.type = 'button'; insert.className = 'button'; insert.textContent = '插入';
-      insert.addEventListener('click', function () { if (focused) insertCommand(focused.state, command.command); else showToast('請先選取一個終端分頁。'); });
+      insert.addEventListener('click', function () { if (focused) insertSnippet(focused.state, command); else showToast('請先選取一個終端分頁。'); });
       var edit = document.createElement('button'); edit.type = 'button'; edit.className = 'icon-button'; edit.textContent = '⋯'; edit.title = '編輯／刪除';
       edit.hidden = !!pack.builtin;
       edit.addEventListener('click', function () { openCommandEditor(pack, command); });
       item.append(details, insert, edit);
-      item.addEventListener('dragstart', function (event) { event.dataTransfer.setData('application/x-terminalgrid-command', command.command); event.dataTransfer.setData('text/plain', command.command); event.dataTransfer.effectAllowed = 'copy'; });
+      item.addEventListener('dragstart', function (event) { event.dataTransfer.setData(command.literal ? literalDragType : commandDragType, command.command); event.dataTransfer.setData('text/plain', command.command); event.dataTransfer.effectAllowed = 'copy'; });
       list.appendChild(item);
     });
   }
   function selectedCommandPack() { return allCommandPacks().find(function (p) { return p.id === $('commandPackSelect').value; }) || null; }
+  function quickCommandPack() {
+    var packs = appConfig.commandPacks;
+    var personal = packs.find(function (pack) { return pack.id === personalPackId && pack.commands.length < 128; });
+    if (personal) return personal;
+    if (packs.length < 32 && !packs.some(function (pack) { return pack.id === personalPackId; })) {
+      return { id: personalPackId, name: '我的常用', commands: [] };
+    }
+    return packs.find(function (pack) { return pack.commands.length < 128; }) || null;
+  }
+  function insertSnippet(state, snippet) {
+    if (snippet.literal && (!snippet.command.trim() || !validLineText(snippet.command))) {
+      showToast('文字片段必須是單行文字。', true); return;
+    }
+    insertCommand(state, snippet.command, false, snippet.literal);
+  }
   function openPackDialog(pack) {
     packEditingId = pack ? pack.id : null; $('packDialogTitle').textContent = pack ? '重新命名指令包' : '新增指令包';
     $('packNameInput').value = pack ? pack.name : '我的指令包'; $('packDialog').showModal(); $('packNameInput').focus(); $('packNameInput').select();
@@ -1794,7 +1833,7 @@
     var source = selectedCommandPack(); if (!source) return;
     if (appConfig.commandPacks.length >= 32) { showToast('最多可建立 32 個指令包。', true); return; }
     var pack = { id: uid('pack'), name: (source.name + ' 副本').slice(0, 64), commands: source.commands.map(function (command) {
-      return { id: uid('cmd'), name: command.name, description: command.description, command: command.command };
+      return { id: uid('cmd'), name: command.name, description: command.description, command: command.command, literal: !!command.literal };
     }) };
     appConfig.commandPacks.push(pack); renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); queueSave(); showToast('指令包已複製。');
   }
@@ -1807,31 +1846,41 @@
       renderCommandLibrary(); queueSave();
     });
   }
-  function openCommandEditor(pack, command) {
-    commandEditingRef = { packId: pack.id, commandId: command ? command.id : null };
-    $('commandEditTitle').textContent = command ? '編輯常用指令' : '新增常用指令';
-    $('commandNameInput').value = command ? command.name : '';
+  function openCommandEditor(pack, command, literalValue) {
+    commandEditingRef = { pack: pack, commandId: command ? command.id : null };
+    $('commandEditTitle').textContent = command ? '編輯常用項目' : '新增常用項目';
+    $('commandEditDestination').textContent = '儲存到「' + pack.name + '」';
+    $('commandItemType').value = (command && command.literal || literalValue) ? 'literal' : 'command';
+    $('commandNameInput').value = command ? command.name : (literalValue || '').slice(0, 80);
     $('commandDescriptionInput').value = command ? command.description : '';
-    $('commandTextInput').value = command ? command.command : '';
+    $('commandTextInput').value = command ? command.command : literalValue || '';
     $('deleteCommandButton').hidden = !command;
     $('commandEditDialog').showModal(); $('commandNameInput').focus();
   }
   function saveCommandEditor(event) {
     event.preventDefault(); var ref = commandEditingRef; if (!ref) return;
-    var pack = appConfig.commandPacks.find(function (item) { return item.id === ref.packId; });
-    if (!pack) { $('commandEditDialog').close(); return; }
-    var name = $('commandNameInput').value.trim(), value = $('commandTextInput').value;
+    var pack = appConfig.commandPacks.find(function (item) { return item.id === ref.pack.id; });
+    var name = $('commandNameInput').value.trim(), value = $('commandTextInput').value, literal = $('commandItemType').value === 'literal';
     if (!name || !value.trim()) { (name ? $('commandTextInput') : $('commandNameInput')).focus(); return; }
-    var command = ref.commandId ? pack.commands.find(function (item) { return item.id === ref.commandId; }) : null;
-    if (command) { command.name = name.slice(0, 80); command.description = $('commandDescriptionInput').value.slice(0, 240); command.command = value.slice(0, 16000); }
-    else {
-      if (pack.commands.length >= 128) { $('commandEditDialog').close(); showToast('每個指令包最多 128 個指令。', true); return; }
-      pack.commands.push({ id: uid('cmd'), name: name.slice(0, 80), description: $('commandDescriptionInput').value.slice(0, 240), command: value.slice(0, 16000) });
+    if (literal && !validLineText(value)) { showToast('文字片段必須是單行文字。', true); $('commandTextInput').focus(); return; }
+    if (!pack) {
+      if (ref.commandId || ref.pack.id !== personalPackId || appConfig.commandPacks.length >= 32) {
+        showToast('指令包已變更，請重新選擇儲存位置。', true); $('commandEditDialog').close(); return;
+      }
+      pack = ref.pack; appConfig.commandPacks.push(pack);
     }
-    $('commandEditDialog').close(); renderCommandLibrary(); queueSave();
+    var fields = { name: name.slice(0, 80), description: $('commandDescriptionInput').value.slice(0, 240), command: value.slice(0, 16000), literal: literal };
+    var command = ref.commandId ? pack.commands.find(function (item) { return item.id === ref.commandId; }) : null;
+    if (command) Object.assign(command, fields);
+    else {
+      if (pack.commands.length >= 128) { $('commandEditDialog').close(); showToast('每個指令包最多 128 個項目。', true); return; }
+      pack.commands.push(Object.assign({ id: uid('cmd') }, fields));
+    }
+    $('commandEditDialog').close(); renderCommandLibrary(pack.id); queueSave();
+    showToast('已儲存到「' + pack.name + '」。');
   }
   function deleteCommandSnippet() {
-    var ref = commandEditingRef, pack = ref && appConfig.commandPacks.find(function (item) { return item.id === ref.packId; });
+    var ref = commandEditingRef, pack = ref && appConfig.commandPacks.find(function (item) { return item.id === ref.pack.id; });
     var command = pack && pack.commands.find(function (item) { return item.id === ref.commandId; }); if (!command) return;
     askConfirmation('刪除常用指令？', '將刪除「' + command.name + '」。', '刪除指令').then(function (accepted) {
       if (!accepted) return;
@@ -1839,10 +1888,11 @@
       $('commandEditDialog').close(); renderCommandLibrary(); queueSave();
     });
   }
-  function addCommand() {
-    var pack = selectedCommandPack(); if (!pack) { showToast('請先建立或匯入指令包。', true); return; }
-    if (pack.commands.length >= 128) { showToast('每個指令包最多 128 個指令。', true); return; }
-    openCommandEditor(pack, null);
+  function addCommand(literalValue) {
+    var selected = literalValue ? null : selectedCommandPack();
+    var pack = selected && !selected.builtin ? selected : quickCommandPack();
+    if (!pack || pack.commands.length >= 128) { showToast('儲存位置已滿，請選擇其他個人指令包。', true); return; }
+    openCommandEditor(pack, null, literalValue);
   }
   function newCommandPack() {
     if (appConfig.commandPacks.length >= 32) { showToast('最多可建立 32 個指令包。', true); return; }
@@ -1862,9 +1912,9 @@
       var pack = { id: uid('pack'), name: str(data.name, 64).trim() || (fileName || '匯入指令包').replace(/\.tgridcmd$/i, ''),
         commands: data.commands.map(function (c) {
           if (!c || typeof c.command !== 'string') throw new Error('指令項目格式不正確。');
-          return { id: uid('cmd'), name: str(c.name, 80).trim() || '常用指令', description: str(c.description, 240), command: str(c.command, 16000) };
+          return { id: uid('cmd'), name: str(c.name, 80).trim() || '常用指令', description: str(c.description, 240), command: str(c.command, 16000), literal: c.literal === true };
         }) };
-      appConfig.commandPacks.push(pack); renderCommandLibrary(); $('commandPackSelect').value = pack.id; queueSave();
+      appConfig.commandPacks.push(pack); renderCommandLibrary(pack.id); queueSave();
       showToast('指令包已匯入；指令只會在選取終端並按插入時填入文字。');
     } catch (error) { showToast('匯入指令包失敗：' + error.message, true); }
   }
@@ -2094,11 +2144,12 @@
     add('開啟指令庫…', function () { renderCommandLibrary(); $('commandDialog').showModal(); });
     window.TerminalGridDefaults.packs.forEach(function (pack) { add(pack.name + '…', function () { renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); $('commandDialog').showModal(); }); });
     var menuItems = 0;
-    appConfig.commandPacks.forEach(function (pack) {
+    var packs = appConfig.commandPacks.slice().sort(function (a, b) { return Number(b.id === personalPackId) - Number(a.id === personalPackId); });
+    packs.forEach(function (pack) {
       pack.commands.forEach(function (command) {
         if (menuItems >= 15) return;
         menuItems++;
-        add('插入：' + command.name, function () { insertCommand(state, command.command); });
+        add('插入：' + command.name, function () { insertSnippet(state, command); });
       });
     });
     positionContextMenu(menu, x, y);
@@ -2402,7 +2453,7 @@
     $('clearCapturesButton').addEventListener('click', function () { capturedValues = []; renderCaptures(); });
     $('captureEnabled').addEventListener('change', function () {
       views.forEach(function (view) { view.panes.forEach(function (cell) { cell.tabs.forEach(resetCaptureScanner); }); });
-      showToast(this.checked ? '已啟用 IPv6 自動擷取。' : '已暫停 IPv6 擷取；現有紀錄會保留。');
+      showToast(this.checked ? '已啟用 IPv6／Aware 介面自動擷取。' : '已暫停自動擷取，現有紀錄會保留。');
     });
     renderCaptures();
     document.addEventListener('dragend', function () { if (captureDragging) { captureDragging = false; renderCaptures(); } });
@@ -2474,7 +2525,7 @@
     $('duplicatePackButton').addEventListener('click', duplicateCommandPack);
     $('deletePackButton').addEventListener('click', deleteCommandPack);
     $('packForm').addEventListener('submit', savePackDialog);
-    $('addCommandButton').addEventListener('click', addCommand);
+    $('addCommandButton').addEventListener('click', function () { addCommand(); });
     $('commandEditForm').addEventListener('submit', saveCommandEditor);
     $('deleteCommandButton').addEventListener('click', deleteCommandSnippet);
     $('exportPackButton').addEventListener('click', exportCommandPack);

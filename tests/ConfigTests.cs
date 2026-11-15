@@ -45,8 +45,10 @@ static class ConfigTests
             Check(appRoundTrip.workspaces.Count == 1 && appRoundTrip.workspaces[0].slots[0].tabs.Count == 2, "application config round-trips workspace terminal tabs");
             Check(appRoundTrip.automations.Count == 1 && appRoundTrip.automations[0].steps[0].tabId == "client", "automation step persists its target terminal tab");
             app.commandPacks.Add(new CommandPackConfig { id = "my-sqa", name = "我的測試", commands = new List<CommandSnippetConfig> { new CommandSnippetConfig { id = "my-push", name = "推送", description = "自訂說明", command = "adb push {{LOCAL_SOURCE}} {{REMOTE_PATH}}" } } });
+            app.commandPacks[0].commands.Add(new CommandSnippetConfig { id = "aware", name = "Aware scope", command = "%aware_data0", literal = true });
             AppConfig upgraded = ConfigStore.ParseAppConfig(ConfigStore.Serializer().Serialize(app));
             Check(upgraded.commandPacks[0].id == "my-sqa" && upgraded.commandPacks[0].commands[0].command == app.commandPacks[0].commands[0].command && upgraded.commandPacks[0].commands[0].description == "自訂說明", "user command packs and path templates survive configuration round-trip");
+            Check(!upgraded.commandPacks[0].commands[0].literal && upgraded.commandPacks[0].commands[1].literal && upgraded.commandPacks[0].commands[1].command == "%aware_data0", "literal snippets round-trip with the percent sign and existing commands keep template behavior");
             Check(upgraded.workspaces[0].slots[0].activeTabId == "client" && upgraded.automations[0].steps[0].text == "iperf3 -c 127.0.0.1", "saved workspaces and automation remain intact alongside new commands");
             AppConfig pausedFlow = ConfigStore.ParseAppConfig(ConfigStore.Serializer().Serialize(new AppConfig { workspaces = new List<WorkspaceConfig> { workspace }, activeWorkspaceId = workspace.id,
                 automations = new List<AutomationConfig> { new AutomationConfig { id = "manual-pause", name = "manual pause", workspaceId = workspace.id, steps = new List<FlowStepConfig> { new FlowStepConfig { action = "pause", text = "完成裝置授權後按繼續" } } } } }));

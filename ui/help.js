@@ -1,9 +1,12 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.14.1', updated: '2026-11-15',
+    version: '3.15.0', updated: '2026-11-15',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['直接新增指令或文字片段', '在任何 Default 指令包按「＋ 新增指令」即可存到「我的常用」。類型選「文字片段」，可以原樣插入 %aware_data0、設備別名等單行文字。'],
+        ['Wi-Fi Aware 介面擷取', '建立 NDP 後，在發送端手機終端執行 ifconfig 或 ip addr。資料暫存會顯示 %aware_data0 等介面及來源。可複製、拖入或右鍵存成常用文字片段。'],
+        ['IPv6 scope 補全', '在 IPv6 後鍵入 %，用 Tab 套用建議，或按 Ctrl+Space 選擇。本格來源優先。連線重建後可再次查詢，確認選的是發送端介面。'],
         ['ADB 抓 Log', '從更多開啟「ADB 抓 Log」。選已授權裝置，直接修改預填的 /data/debuglogger/ 或 /sdcard/log，或按「瀏覽手機」選檔案／資料夾。本機目的路徑可輸入或選資料夾。插入後按終端 Enter 開始下載。'],
         ['終端 Log 保留', '切換 IPv6 自動擷取時會保留近期終端輸出和手動標記。'],
         ['開啟手機 App', '在更多選「開啟手機 App／SysDump」，選 ADB 裝置並搜尋套件或 Activity。按「在手機開啟 App」可進入當前 Android 使用者可啟動的 App。'],

@@ -1,4 +1,10 @@
-# Terminal Grid 3.14.1
+# Terminal Grid 3.15.0
+
+- Default 指令包可直接新增指令或原樣插入的文字片段。個人項目儲存在「我的常用」，支援匯出及匯入 .tgridcmd。
+- Android／Linux 的 ifconfig 和 ip addr 輸出會自動擷取 Wi-Fi Aware scope，顯示來源終端，支援複製、拖曳及右鍵儲存。
+- 在 IPv6 後輸入 % 可選擇 scope 補全，優先顯示本格候選，保留位址及其他指令參數。
+
+## Terminal Grid 3.14.1
 
 - ADB Pull 可指定手機來源與本機目的路徑。抓 Log 捷徑預填 `/data/debuglogger/` 或 `/sdcard/log`，可修改或在指定手機上瀏覽檔案與資料夾。
 - 切換 IPv6 自動擷取會保留近期終端 Log 與手動標記。

@@ -107,4 +107,37 @@ test('new query command clears stale source interface metadata', function () {
 test('one network line deduplicates repeated addresses', function () {
   assert.deepEqual(addresses(['inet6 fe80::A fe80::a fe80::b\n']), ['fe80::A', 'fe80::b']);
 });
+test('Aware scopes come from real interface headers, even before an IPv6 address is listed', function () {
+  var entries = [], scopes = [];
+  var scanner = ipv6.createScanner(function (entry) { entries.push(entry); }, function (scope) { scopes.push(scope); });
+  var output = 'C:\\>echo aware_data9\r\nEthernet adapter aware_data8:\r\n' +
+    '42: aware_data2@wifi0: <UP> mtu 1500\r\n    inet6 fe80::abcd/64 scope link\r\n' +
+    'aware_data0 Link encap:UNSPEC\r\naware_data1: flags=1<UP> mtu 1500\r\n' +
+    'wlan0: flags=1<UP> mtu 1500\r\n';
+  output.split('').forEach(scanner.feed);
+  assert.deepEqual(scopes.map(function (scope) { return [scope.address, scope.interfaceName, scope.kind]; }),
+    [['%aware_data2', 'aware_data2', 'scope'], ['%aware_data0', 'aware_data0', 'scope'], ['%aware_data1', 'aware_data1', 'scope']]);
+  assert.deepEqual(entries, [{ address: 'fe80::abcd', interfaceName: 'aware_data2' }]);
+});
+test('IPv6 completion ranks sender scopes and replaces only the zone', function () {
+  require('../ui/completion.js');
+  var completion = globalThis.TerminalGridCompletion;
+  var sender = { workspaceId: 'qa', slot: 1, tabId: 'sender' };
+  var text = 'ping6 "fe80::1234%aw" -c 4';
+  var caret = text.indexOf('"', text.indexOf('%'));
+  var context = { value: text, start: caret, end: caret, terminal: sender };
+  var sources = { commands: completion.catalog([]), history: [], values: [
+    { address: '%aware_data0', kind: 'scope', source: 'DUT1' },
+    { address: 'fe80::5678', interfaceName: 'aware_data0' },
+    Object.assign({ address: '%aware_data1', kind: 'scope', source: 'DUT2' }, sender),
+    { address: '%aware_data1', kind: 'literal' }
+  ] };
+  var choices = completion.suggestions(context, sources, false);
+  assert.deepEqual(choices.map(function (choice) { return [choice.value, choice.source]; }),
+    [['%aware_data1', 'DUT2'], ['%aware_data0', 'DUT1']]);
+  var first = choices[0];
+  assert.equal(text.slice(0, first.start) + first.value + text.slice(first.end), 'ping6 "fe80::1234%aware_data1" -c 4');
+  context.value = 'ping6 fe80::1234%'; context.start = context.end = context.value.length;
+  assert.equal(completion.suggestions(context, sources, false)[0].value, '%aware_data1');
+});
 console.log('IPv6 capture: ' + passed + ' tests passed.');

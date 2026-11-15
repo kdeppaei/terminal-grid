@@ -43,11 +43,11 @@
       <div class="terminal-stack"><div id="workspaceHost" class="workspace-host"></div><div id="commandDraftHost" class="command-draft-host" hidden></div></div>
       <aside id="capturePanel" class="capture-panel" aria-labelledby="captureTitle" hidden>
         <div class="capture-heading"><div><span class="eyebrow">CAPTURED VALUES</span><h2 id="captureTitle">資料暫存與指令草稿</h2></div><button id="closeCaptureButton" class="icon-button" aria-label="收合資料暫存區">×</button></div>
-        <div class="capture-controls"><label><input id="captureEnabled" type="checkbox" checked>自動擷取 IPv6</label><button id="clearCapturesButton" class="button quiet">清空</button></div>
+        <div class="capture-controls"><label><input id="captureEnabled" type="checkbox" checked>自動擷取 IPv6／Aware</label><button id="clearCapturesButton" class="button quiet">清空</button></div>
         <form id="captureValueForm" class="capture-add"><input id="captureValueInput" maxlength="4096" placeholder="設備名稱、IP 或其他文字" aria-label="手動暫存文字" autocomplete="off" spellcheck="false"><button id="addCaptureValueButton" type="submit" class="button">加入</button></form>
         <button id="draftButton" class="button quiet">編輯選取指令／開啟草稿</button>
         <div id="captureList" class="capture-list" aria-label="最近暫存的位址與文字"></div>
-        <p id="captureEmpty" class="capture-empty">執行 ifconfig、adb shell ifconfig、ip -6 addr 或 ipconfig 後，IPv6 會出現在這裡。</p>
+        <p id="captureEmpty" class="capture-empty">執行 ifconfig 或 ip addr 可擷取 IPv6 與 Wi-Fi Aware 介面。ipconfig 也可擷取 IPv6。</p>
         <details class="capture-details"><summary>使用方式與紀錄範圍</summary><p class="capture-hint">右鍵複製或替換草稿中的選取文字。拖到終端會插入；拖到草稿會替換框選部分。不會自動執行。</p><p class="capture-footnote">最近 80 筆，新位址在前；舊紀錄可能已失效。僅保留本次開啟期間。<br>fe80 位址可能需要接收端的 %介面；不會自動套用來源裝置的介面。</p></details>
       </aside>
     </div>
@@ -58,7 +58,28 @@
 
   <dialog id="packDialog" class="modal compact-modal" aria-labelledby="packDialogTitle"><form id="packForm"><div class="modal-heading"><div><span class="eyebrow">COMMAND PACK</span><h2 id="packDialogTitle">新增指令包</h2></div><button type="button" class="icon-button modal-close" data-close="packDialog" aria-label="關閉指令包設定">×</button></div><div class="modal-content"><label class="field">指令包名稱<input id="packNameInput" maxlength="64" required placeholder="例如：網路測試"></label></div><div class="modal-actions"><button type="button" class="button quiet" data-close="packDialog">取消</button><span class="toolbar-spacer"></span><button type="submit" class="button primary">儲存</button></div></form></dialog>
 
-  <dialog id="commandEditDialog" class="modal compact-modal" aria-labelledby="commandEditTitle"><form id="commandEditForm"><div class="modal-heading"><div><span class="eyebrow">COMMAND SNIPPET</span><h2 id="commandEditTitle">新增常用指令</h2></div><button type="button" class="icon-button modal-close" data-close="commandEditDialog" aria-label="關閉指令編輯">×</button></div><div class="modal-content"><label class="field">指令名稱<input id="commandNameInput" maxlength="80" required placeholder="例如：查看路由"></label><label class="field">說明<input id="commandDescriptionInput" maxlength="240" placeholder="用途或參數說明（選填）"></label><label class="field">指令內容<textarea id="commandTextInput" rows="5" maxlength="16000" required spellcheck="false" placeholder="輸入要放入終端的指令"></textarea></label><p class="help-note">插入指令只會填入終端，不會自動按 Enter 執行。</p></div><div class="modal-actions"><button type="button" class="button quiet" data-close="commandEditDialog">取消</button><span class="toolbar-spacer"></span><button id="deleteCommandButton" type="button" class="button danger" hidden>刪除指令</button><button type="submit" class="button primary">儲存</button></div></form></dialog>
+  <dialog id="commandEditDialog" class="modal compact-modal" aria-labelledby="commandEditTitle">
+    <form id="commandEditForm">
+      <div class="modal-heading">
+        <h2 id="commandEditTitle">新增常用項目</h2>
+        <button type="button" class="icon-button modal-close" data-close="commandEditDialog" aria-label="關閉常用項目編輯">×</button>
+      </div>
+      <div class="modal-content">
+        <p id="commandEditDestination" class="help-note"></p>
+        <label class="field">類型<select id="commandItemType"><option value="command">指令</option><option value="literal">文字片段</option></select></label>
+        <label class="field">名稱<input id="commandNameInput" maxlength="80" required placeholder="例如：查看路由、Aware scope"></label>
+        <label class="field">內容<textarea id="commandTextInput" rows="3" maxlength="16000" required spellcheck="false" placeholder="例如：%aware_data0"></textarea></label>
+        <label class="field">說明<input id="commandDescriptionInput" maxlength="240" placeholder="選填"></label>
+        <p class="help-note">文字片段會原樣插入。插入後由你按 Enter 執行。</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="button quiet" data-close="commandEditDialog">取消</button>
+        <span class="toolbar-spacer"></span>
+        <button id="deleteCommandButton" type="button" class="button danger" hidden>刪除項目</button>
+        <button type="submit" class="button primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="settingsDialog" class="modal settings-modal" aria-labelledby="settingsTitle">
     <form id="settingsForm">

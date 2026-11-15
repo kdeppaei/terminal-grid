@@ -1,4 +1,4 @@
-(function (root) {
+(function (root, ipv6) {
   'use strict';
   var wordPattern = /[^\s"'&|<>;,]+/g;
   var eligibleCommand = /^[a-z\d][a-z\d_.-]{0,63}$/i;
@@ -56,6 +56,24 @@
       if (hit) { end = hit.index + hit[0].length; start = hit.index; }
     }
     if (!selected && !explicit && end !== context.start) return [];
+    var scope = !selected && !context.replaceOnly && /^([^%]+)(%[\w.~-]*)$/.exec(text.slice(start, end));
+    if (scope && context.start > start + scope[1].length && ipv6.isIPv6(scope[1])) {
+      start += scope[1].length;
+      var queryScope = text.slice(start, context.start);
+      var scopes = new Map();
+      sources.values.forEach(function (item) {
+        if (!/^%[A-Za-z0-9_.~-]{1,128}$/.test(item.address) || !item.address.toLowerCase().startsWith(queryScope.toLowerCase()) ||
+            item.address === text.slice(start, end)) return;
+        var score = context.terminal && item.workspaceId === context.terminal.workspaceId && item.slot === context.terminal.slot &&
+          item.tabId === context.terminal.tabId ? 0 : item.kind === 'scope' ? 1 : 2;
+        var previous = scopes.get(item.address);
+        if (!previous || score < previous.score) scopes.set(item.address, {
+          value: item.address, source: item.kind === 'scope' ? item.source || 'Wi-Fi Aware' : item.kind === 'literal' ? '文字片段' : '暫存值',
+          score: score, start: start, end: end, label: item.address
+        });
+      });
+      return Array.from(scopes.values()).sort(function (a, b) { return a.score - b.score; }).slice(0, 8);
+    }
     var query = context.query || (selected ? text.slice(start, end) : text.slice(start, context.start));
     if (!explicit && (query.length < 2 || query.length > 80)) return [];
     if (query.length > 128) return [];
@@ -85,10 +103,11 @@
         (tokens[0] && tokens[0][0].toLowerCase() === command ? tokens.slice(1) : []);
       words.forEach(function (word) { add(word[0], '歷史用詞', rank(query, word[0], true) - 1, start, end); });
     });
-    if (!first || selected || context.replaceOnly || explicit) sources.values.forEach(function (item) {
+    sources.values.forEach(function (item) {
+      if (first && !selected && !context.replaceOnly && !explicit && item.kind !== 'literal') return;
       var score = rank(query, item.address, false) + 1;
       if (!Number.isFinite(score) && explicit && (selected || context.replaceOnly)) score = 80;
-      add(item.address, '暫存值', score, start, end);
+      add(item.address, item.kind === 'literal' ? '文字片段' : '暫存值', score, start, end);
     });
     if (context.snippets && !selected && first && !text.slice(end).trim()) examples.forEach(function (example) {
       var item = snippet(example), head = tokenize(item.value)[0][0];
@@ -193,7 +212,8 @@
     var menu = options.menu, composing = false, applying = false, fields = [], fieldIndex = -1, before = null;
     function snapshot() {
       return { value: input.value, start: input.selectionStart, end: input.selectionEnd,
-        replaceOnly: options.replaceOnly, snippets: options.snippets, query: !input.value ? options.initialQuery : '' };
+        replaceOnly: options.replaceOnly, snippets: options.snippets, terminal: options.terminal,
+        query: !input.value ? options.initialQuery : '' };
     }
     var target = { input: input, apply: function (item, saved) {
       if (input.value !== saved.value || input.selectionStart !== saved.start || input.selectionEnd !== saved.end) return;
@@ -267,4 +287,5 @@
     } };
   }
   root.TerminalGridCompletion = { suggestions: suggestions, catalog: catalog, createMenu: createMenu, attachEditor: attachEditor };
-}(typeof window === 'undefined' ? globalThis : window));
+}(typeof window === 'undefined' ? globalThis : window,
+  typeof module === 'object' && module.exports ? require('./ipv6-capture.js') : window.TerminalGridIPv6));

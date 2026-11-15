@@ -35,7 +35,7 @@ function serveUi() {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-function ifconfig(address, iface = 'aware_data0') {
+function ifconfig(address, iface = 'wlan0') {
   return iface + ': flags=4163<UP,BROADCAST,RUNNING,MULTICAST> mtu 1500\r\n' +
     '    inet6 ' + address + '  prefixlen 64 scopeid 0x20<link>\r\n';
 }
@@ -97,7 +97,7 @@ async function main() {
     assert.equal(await page.locator('.capture-item').first().getAttribute('data-address'), firstAddress);
     const firstText = await page.locator('.capture-item').first().innerText();
     assert.match(firstText, /Android A/);
-    assert.match(firstText, /aware_data0/);
+    assert.match(firstText, /wlan0/);
     assert.match(firstText, /WiFi Aware/);
     passed('split UTF-8/output captures a complete IPv6 address with terminal and interface source');
 
@@ -292,6 +292,56 @@ async function main() {
     assert.equal(JSON.stringify(saved.config).includes(savedValue), false);
     assert.deepEqual(errors, []);
     passed('observed addresses stay outside saved configuration and UI emits no uncaught errors');
+
+    await page.setViewportSize({ width: 1366, height: 840 });
+    await output(Object.assign({}, sourceB, { generation: 2 }), '7: aware_data1@wifi0: <UP> mtu 1500\r\n');
+    const scope = page.locator('.capture-item[data-address="%aware_data1"]');
+    await scope.waitFor();
+    assert.match(await scope.innerText(), /Wi-Fi Aware 介面[\s\S]+Android B/);
+    const line = page.locator('.pane[data-slot="1"] .terminal-layer:visible .pane-line-input');
+    await line.fill('ping6 fe80::1234% -c 4');
+    await line.evaluate(input => { const caret = input.value.indexOf('%') + 1; input.setSelectionRange(caret, caret); });
+    await line.press('Control+Space');
+    await page.locator('#completionMenu li').filter({ hasText: '%aware_data1' }).waitFor();
+    await line.press('Tab');
+    assert.equal(await line.inputValue(), 'ping6 fe80::1234%aware_data1 -c 4');
+    passed('Aware scope capture and editor completion preserve the IPv6 address and arguments');
+
+    await page.locator('#commandButton').click();
+    assert.match(await page.locator('#commandPackSelect option:checked').innerText(), /Default/);
+    await page.locator('#addCommandButton').click();
+    assert.match(await page.locator('#commandEditDestination').innerText(), /我的常用/);
+    await page.locator('[data-close="commandEditDialog"]').filter({ hasText: '取消' }).click();
+    assert.equal(await page.locator('#commandPackSelect option[value="personal-favorites"]').count(), 0);
+    await page.locator('#addCommandButton').click();
+    await page.locator('#commandItemType').selectOption('literal');
+    await page.locator('#commandNameInput').fill('Aware scope');
+    await page.locator('#commandTextInput').fill('%aware_data0');
+    await page.locator('#commandEditForm button[type="submit"]').click();
+    assert.equal(await page.locator('#commandPackSelect').inputValue(), 'personal-favorites');
+    const snippet = page.locator('#commandList .command-item').filter({ hasText: 'Aware scope' });
+    assert.match(await snippet.innerText(), /文字片段/);
+    await snippet.getByRole('button', { name: '插入' }).click();
+    await page.waitForFunction(() => window.__captureHostMessages.some(message => message.type === 'input' && message.data === '%aware_data0'));
+    assert.equal(await page.locator('#pathCommandDialog').isVisible(), false);
+    await page.locator('#exportPackButton').click();
+    const packText = await page.evaluate(() => window.__captureHostMessages.filter(message => message.type === 'commandPackSave').at(-1).text);
+    assert.equal(JSON.parse(packText).commands[0].literal, true);
+    await emit({ type: 'commandPackLoaded', text: packText, fileName: 'aware.tgridcmd' });
+    assert.match(await page.locator('#commandList .command-item').filter({ hasText: 'Aware scope' }).innerText(), /文字片段/);
+    await page.locator('#commandDialog .modal-actions [data-close="commandDialog"]').click();
+    await scope.click({ button: 'right' });
+    await page.getByRole('button', { name: '儲存為常用文字片段…' }).click();
+    assert.equal(await page.locator('#commandTextInput').inputValue(), '%aware_data1');
+    assert.equal(await page.locator('#commandItemType').inputValue(), 'literal');
+    await page.locator('#commandEditForm button[type="submit"]').click();
+    await page.locator('#saveButton').click();
+    const updated = await page.evaluate(() => window.__captureHostMessages.filter(message => message.type === 'save').at(-1).config);
+    const favorites = updated.commandPacks.find(pack => pack.id === 'personal-favorites');
+    assert.deepEqual(favorites.commands.map(command => [command.command, command.literal]),
+      [['%aware_data0', true], ['%aware_data1', true]]);
+    assert.deepEqual(errors, []);
+    passed('quick save from Default and capture shelf persists literal snippets with import/export and exact insertion');
     console.log('Capture UI checks passed: ' + assertions.length + '. Host and clipboard APIs were mocked; no native terminal commands ran.');
   } catch (error) {
     if (page) {
