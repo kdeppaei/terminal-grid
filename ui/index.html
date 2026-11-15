@@ -23,6 +23,8 @@
           <label><input id="showLineEditors" type="checkbox" checked> 顯示每格輸入列</label>
           <label><input id="smartCompletion" type="checkbox" checked> 智慧指令建議</label>
           <button id="clearCompletionHistory" type="button" class="button">清除本次補全歷史</button>
+          <button id="adbLogsButton" type="button" class="button">ADB 抓 Log…</button>
+          <button id="androidAppsButton" type="button" class="button">開啟手機 App／SysDump…</button>
           <label for="rightClickMode">終端右鍵操作</label><select id="rightClickMode"><option value="quick">快速複製／貼上</option><option value="menu">開啟功能選單</option></select>
           <p>快速模式：有選取就複製，無選取就貼上。Shift＋右鍵或每格 ⋯ 仍可開啟選單。</p>
           <div class="options-divider"></div><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="helpButton" class="button quiet">使用說明</button>
@@ -142,6 +144,17 @@
     <div class="modal-actions"><button id="undoPaneButton" class="button">復原上一次操作</button></div>
   </dialog>
   <script src="flow-output.js"></script>
+  <dialog id="androidAppsDialog" class="modal" aria-labelledby="androidAppsTitle">
+    <div class="modal-heading"><h2 id="androidAppsTitle">開啟手機 App</h2><button type="button" class="icon-button" data-close="androidAppsDialog" aria-label="關閉手機 App">×</button></div>
+    <div class="modal-content">
+      <div class="folder-input-row"><button id="refreshAndroidDevices" type="button" class="button">重新偵測裝置</button><button id="pickAppsAdb" type="button" class="button">選 ADB 資料夾…</button></div>
+      <label class="field">ADB 裝置<select id="androidDevice"></select></label>
+      <label class="field">搜尋套件或 Activity<input id="androidAppSearch" placeholder="例如 com.android.settings"></label>
+      <label class="field">可開啟的 App<select id="androidApp" size="7"></select></label>
+      <p id="androidAppsStatus" class="help-note" role="status"></p>
+    </div>
+    <div class="modal-actions"><button id="androidSysdump" type="button" class="button" disabled>將 *#9900# 帶入撥號器</button><button id="launchAndroidApp" type="button" class="button primary" disabled>在手機開啟 App</button></div>
+  </dialog>
   <script src="completion.js"></script>
   <script src="app.js"></script>
 </body>

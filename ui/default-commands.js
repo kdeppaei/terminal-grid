@@ -2,6 +2,10 @@
   'use strict';
   // Built-in reference templates are separate from editable/exported user packs.
   var packs = [];
+  var logPull = [
+    ['Pull /data/debuglogger/', 'adb -s {{SERIAL}} pull /data/debuglogger/ {{LOCAL_FOLDER}}', '下載裝置的 DebugLogger 資料夾，需要該路徑的讀取權限。'],
+    ['Pull /sdcard/log', 'adb -s {{SERIAL}} pull /sdcard/log {{LOCAL_FOLDER}}', '下載已寫入手機內部儲存空間 log 資料夾的檔案。']
+  ];
   function prepare(text) {
     return text.replace(/\bDEVICE_SERIAL\b/g, '{{SERIAL}}').replace(/\b192\.0\.2\.10\b/g, '{{TARGET_IPV4}}')
       .replace(/\b192\.0\.2\.20\b/g, '{{LOCAL_IPV4}}').replace(/2001:db8::10\b/g, '{{TARGET_IPV6}}')
@@ -126,12 +130,13 @@
     ['iperf 2 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf -V -s -p 5001', 'DUT1 server；兩端必須同為 iperf 2。'],
     ['手機鏡像', 'scrcpy -s {{SERIAL}}', '開啟指定手機的 scrcpy，手動操作 NAN APK 或 Quick Share。']
   ]);
+  pack('adb-logs', 'ADB／抓 Log', logPull);
   pack('device-files', '裝置設定／Logs／local tmp', [
     ['讀取 wifi.cfg', 'adb -s {{SERIAL}} shell cat /vendor/firmware/wifi.cfg', '圖形編輯與備份寫回請按指令庫上方「裝置檔案」。'],
     ['備份 wifi.cfg（選本機資料夾）', 'adb -s {{SERIAL}} pull /vendor/firmware/wifi.cfg {{LOCAL_FOLDER}}', '讀取需有權限；不修改手機。'],
     ['Push RD wifi.cfg（選檔）', 'adb -s {{SERIAL}} push {{LOCAL_SOURCE}} /vendor/firmware/wifi.cfg', '此終端指令會覆寫，請先備份；圖形窗口另提供自動備份與讀回驗證。'],
-    ['Pull sdcard logs', 'adb -s {{SERIAL}} pull /sdcard/log/ {{LOCAL_FOLDER}}', '選本機目的資料夾。裝置檔案窗口會自動分序號／時間存檔。'],
-    ['Pull debuglogger', 'adb -s {{SERIAL}} pull /data/debuglogger {{LOCAL_FOLDER}}', '完整抓取資料夾；權限不足請由 RD 確認手機設定。'],
+    logPull[1],
+    logPull[0],
     ['列出 local tmp', 'adb -s {{SERIAL}} shell ls -la /data/local/tmp', '確認測試工具與檔案。'],
     ['Push 到 local tmp', 'adb -s {{SERIAL}} push {{LOCAL_SOURCE}} /data/local/tmp/', '選本機檔案或資料夾；保留原檔名，可能覆寫。'],
     ['Pull local tmp', 'adb -s {{SERIAL}} pull /data/local/tmp/ {{LOCAL_FOLDER}}', '抓取暫存檔與測試產物。'],
@@ -164,7 +169,12 @@
     return '"' + value + '"';
   }
   function keys(text) { return Array.from(new Set((text.match(/\{\{[A-Z][A-Z0-9_]*\}\}/g) || []).map(function (s) { return s.slice(2, -2); }))).filter(function (k) { return fields[k]; }); }
-  function resolve(text, values, shell) {
+  function isLogPull(text) { return logPull.some(function (entry) { return entry[1] === text; }); }
+  function resolve(text, values, shell, adbPath) {
+    if (adbPath && isLogPull(text)) {
+      var executable = quote(adbPath, shell, '');
+      text = (shell === 'CMD' ? '' : '& ') + executable + text.slice(3);
+    }
     var scopes = 0;
     return text.replace(/\{\{([A-Z][A-Z0-9_]*)\}\}/g, function (_, key) {
       if (!fields[key]) throw Error('未知範本欄位：' + key);
@@ -173,5 +183,5 @@
       return quote(values[key], shell, key);
     });
   }
-  root.TerminalGridDefaults = { packs: packs, fields: fields, keys: keys, resolve: resolve, prepare: prepare };
+  root.TerminalGridDefaults = { packs: packs, fields: fields, keys: keys, resolve: resolve, prepare: prepare, isLogPull: isLogPull };
 }(typeof window === 'undefined' ? globalThis : window));

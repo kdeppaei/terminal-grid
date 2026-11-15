@@ -2,8 +2,8 @@
 const assert = require('node:assert/strict');
 require('../ui/default-commands.js');
 const d = globalThis.TerminalGridDefaults;
-assert.equal(d.packs.length, 12);
-assert.equal(new Set(d.packs.map(p => p.id)).size, 12);
+assert.equal(d.packs.length, 13);
+assert.equal(new Set(d.packs.map(p => p.id)).size, 13);
 const all = d.packs.flatMap(p => p.commands);
 for (const p of d.packs) {
   assert.ok(p.builtin && p.commands.length && p.commands.length <= 128);
@@ -26,4 +26,13 @@ assert.equal(d.prepare('ping 10.0.0.5'), 'ping 10.0.0.5');
 assert.equal(d.prepare('ping {{TARGET_IPV6}}'), 'ping {{TARGET_IPV6}}');
 assert.deepEqual(d.keys(d.prepare('iperf3 -c 192.0.2.10 -B 192.0.2.20')), ['TARGET_IPV4', 'LOCAL_IPV4']);
 assert.equal(d.resolve('{{TARGET_IPV6}}', { TARGET_IPV6: 'fe80::1234%12' }, 'PowerShell'), "'fe80::1234%12'");
+const pulls = d.packs.find(pack => pack.id === '@default-adb-logs').commands;
+assert.equal(pulls.length, 2);
+for (const [i, remote] of ['/data/debuglogger/', '/sdcard/log'].entries()) {
+  const values = { SERIAL: 'DEVICE-1', LOCAL_FOLDER: 'C:\\Logs folder' };
+  assert.equal(d.resolve(pulls[i].command, values, 'CMD', 'C:\\Platform Tools\\adb.exe'),
+    '"C:\\Platform Tools\\adb.exe" -s "DEVICE-1" pull ' + remote + ' "C:\\Logs folder"');
+  assert.equal(d.resolve(pulls[i].command, values, 'PowerShell', 'C:\\Platform Tools\\adb.exe'),
+    "& 'C:\\Platform Tools\\adb.exe' -s 'DEVICE-1' pull " + remote + " 'C:\\Logs folder'");
+}
 console.log('Default catalog: ' + d.packs.length + ' packs, ' + all.length + ' commands; templates, quoting and invalid paths passed.');

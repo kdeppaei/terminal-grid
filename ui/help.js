@@ -1,9 +1,12 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.13.0', updated: '2026-11-15',
+    version: '3.14.0', updated: '2026-11-15',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['ADB 抓 Log', '從更多開啟指令庫的「ADB／抓 Log」。選 /data/debuglogger/ 或 /sdcard/log，再選已授權裝置和本機資料夾，插入後按終端 Enter 開始下載。'],
+        ['開啟手機 App', '在更多選「開啟手機 App／SysDump」，選 ADB 裝置並搜尋套件或 Activity。按「在手機開啟 App」可進入當前 Android 使用者可啟動的 App。'],
+        ['Samsung SysDump', '選「將 *#9900# 帶入撥號器」，再看手機是否進入 SysDump。如果只開了撥號畫面，在 Samsung 電話鍵盤清空後手動鍵入 *#9900#。完成 Run dumpstate/logcat 與 Copy to sd card 後可 Pull /sdcard/log。'],
         ['智慧指令建議', '從指令庫、本次歷史與資料暫存找出可用建議。輸入 ipref3 可選 iperf3。框選指令的一部分後按 Ctrl+Space，可只替換選取的字。'],
         ['可跳欄位的範本', '在輸入列或草稿鍵入 iperf3，再按 Ctrl+Space 選 client 範本。先填主機位址，按 Tab 填秒數，Shift+Tab 回前一欄。'],
         ['快速截圖與 Log', '選取終端按 F8，填 Excel 工作表、TC、PASS／FAIL。自動帶入可辨識的 iperf 吞吐量與完成證據，儲存到資料目錄的 evidence，以同名 PNG 和 .log 配對。'],
@@ -18,6 +21,7 @@
         ['保留原本的工作配置', '更新沿用本機工作區、自建指令與流程；內建 Default 包更新，不覆蓋個人包。']
       ] },
       { name: '操作規則', paragraphs: [
+        ['選 ADB 資料夾', '偵測不到 adb.exe 時，選含 adb.exe 的 Platform Tools 或 scrcpy 資料夾。請解鎖手機並允許 USB 偵錯；/data/debuglogger/ 是否可讀取由手機權限決定。'],
         ['.bat／.cmd：執行原檔', '拖到哪格就在那格新增分頁，以檔名命名。拖到空白區使用目前工作區選取的格子，沒有選取時用第 01 格。多檔各開一頁獨立執行，容量不足則不開始。'],
         ['BAT 的工作目錄與等待', '使用原檔所在的本機資料夾，不改寫或逐行拆解腳本；變數、迴圈、相對路徑與 pause 由 CMD 處理。pause 請點終端按鍵；結束後保留輸出。網路分享上的 BAT 請先複製到本機。'],
         ['BAT 的保存與重跑', '保存的是原檔路徑，原檔移動後需重新選檔。重開程式只載入配置；手動按該分頁「啟動／重新啟動」才重跑。齒輪設定可改路徑，或清除路徑恢復一般終端。'],

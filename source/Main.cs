@@ -16,7 +16,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.13.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.14.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -157,7 +157,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.13.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.14.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -228,6 +228,7 @@ namespace TerminalGridIntegrated
                 if (type == "deviceFilesOpen") { Ui(delegate { if (deviceFiles == null || deviceFiles.IsDisposed) deviceFiles = new DeviceFilesForm(); if (!deviceFiles.Visible) deviceFiles.Show(this); deviceFiles.Activate(); }); return; }
                 if (type == "flowOpen") { Ui(OpenFlow); return; }
                 if (type == "flowSave") { Ui(delegate { SaveFlow(StringValue(message, "text")); }); return; }
+                if (type == "androidApps" || type == "androidLaunch") { RunAndroidAction(type, message); return; }
                 if (type == "runSave") { SaveRun(StringValue(message, "runId"), StringValue(message, "text")); return; }
                 if (type == "exportLog") { Ui(delegate { ExportLog(StringValue(message, "text")); }); return; }
                 if (type == "captureEvidence") { CaptureEvidence(message); return; }
@@ -284,7 +285,7 @@ namespace TerminalGridIntegrated
                     Task.Run(delegate {
                         TargetDiscoveryResult result;
                         try { result = TargetDiscovery.Discover(cwd, android, pathFolder); } catch (Exception) { result = new TargetDiscoveryResult { message = "偵測失敗，可重新偵測或手動輸入。" }; }
-                        Ui(delegate { targetDiscoveryBusy = false; Send(new { type = "commandTargets", requestId = requestId, candidates = result.candidates, message = result.message }); });
+                        Ui(delegate { targetDiscoveryBusy = false; Send(new { type = "commandTargets", requestId = requestId, candidates = result.candidates, message = result.message, adbPath = result.adbPath }); });
                     }); return;
                 }
                 if (type == "start" || type == "restart")
@@ -336,6 +337,27 @@ namespace TerminalGridIntegrated
             catch (Exception ex) { Status("操作未完成：" + ex.Message); }
         }
         bool targetDiscoveryBusy;
+        void RunAndroidAction(string type, IDictionary<string, object> message)
+        {
+            string requestId = StringValue(message, "requestId"), serial = StringValue(message, "serial");
+            string folder = StringValue(message, "toolsFolder"), component = StringValue(message, "component");
+            bool list = type == "androidApps", sysdump = StringValue(message, "sysdump") == "True";
+            Task.Run(delegate {
+                try {
+                    if (!AndroidLaunch.ValidSerial(serial)) throw new ArgumentException("請選擇已授權的 ADB 裝置。");
+                    string adb = String.IsNullOrWhiteSpace(folder) ? TargetDiscovery.FindAdb(null) : AdbFiles.FindAdb(folder);
+                    if (adb == null) throw new FileNotFoundException("找不到 adb.exe，請選工具資料夾。");
+                    string command = list ? AndroidLaunch.ListCommand : AndroidLaunch.StartCommand(component, sysdump);
+                    string output = TargetDiscovery.AdbShell(adb, serial, command, 15000);
+                    string[] components = list ? AndroidLaunch.Components(output) : null;
+                    if (!list) AndroidLaunch.CheckStartResult(output);
+                    Ui(delegate { Send(new { type = "androidActionResult", requestId = requestId, components = components }); });
+                } catch (Exception ex) {
+                    string error = ex.Message.Length <= 500 ? ex.Message : ex.Message.Substring(0, 500);
+                    Ui(delegate { Send(new { type = "androidActionResult", requestId = requestId, error = error }); });
+                }
+            });
+        }
         void SendRecording(PaneState pane, string error)
         {
             Send(new { type = "recording", workspaceId = pane.WorkspaceId, slot = pane.Slot, tabId = pane.TabId, generation = pane.Generation,

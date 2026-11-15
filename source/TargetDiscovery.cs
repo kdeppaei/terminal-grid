@@ -29,6 +29,7 @@ namespace TerminalGridIntegrated
     {
         public List<TargetCandidate> candidates = new List<TargetCandidate>();
         public string message = "";
+        public string adbPath = "";
     }
     public static class TargetDiscovery
     {
@@ -49,7 +50,7 @@ namespace TerminalGridIntegrated
             }
             return result;
         }
-        public static string AdbShell(string adb, string serial, string command)
+        public static string AdbShell(string adb, string serial, string command, int timeoutMs = 5000)
         {
             string args = String.Join(" ", new[] { "-s", serial, "shell", command }.Select(ShellBuilder.Quote));
             using (var process = new Process { StartInfo = new ProcessStartInfo(adb, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } })
@@ -57,7 +58,7 @@ namespace TerminalGridIntegrated
                 process.Start();
                 var output = process.StandardOutput.ReadToEndAsync();
                 var error = process.StandardError.ReadToEndAsync();
-                if (!process.WaitForExit(5000)) { try { process.Kill(); } catch (InvalidOperationException) { } throw new TimeoutException("ADB query timed out."); }
+                if (!process.WaitForExit(timeoutMs)) { try { process.Kill(); } catch (InvalidOperationException) { } throw new TimeoutException("ADB 操作逾時，請確認裝置畫面及 USB 連線。"); }
                 if (!Task.WaitAll(new Task[] { output, error }, 1000)) throw new TimeoutException("ADB output timed out.");
                 if (process.ExitCode != 0) throw new InvalidOperationException("ADB query failed: " + error.Result.Trim());
                 return output.Result;
@@ -77,6 +78,13 @@ namespace TerminalGridIntegrated
                     result.Add(new TargetCandidate { value = ip.ToString(), label = "ADB 網路裝置 · " + ip, kind = "remote" });
             }
             return result;
+        }
+        public static string FindAdb(string cwd)
+        {
+            if (!String.IsNullOrWhiteSpace(cwd)) {
+                try { string file = Path.Combine(cwd, "adb.exe"); if (File.Exists(file)) return Path.GetFullPath(file); } catch (ArgumentException) { }
+            }
+            return ShellBuilder.FindExecutable("adb.exe");
         }
         public static TargetDiscoveryResult Discover(string cwd, bool android = false, string pathFolder = null)
         {
@@ -117,12 +125,9 @@ namespace TerminalGridIntegrated
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
             }
-            string adb = null;
-            if (!String.IsNullOrWhiteSpace(cwd)) {
-                try { string file = Path.Combine(cwd, "adb.exe"); if (File.Exists(file)) adb = Path.GetFullPath(file); } catch (ArgumentException) { }
-            }
-            if (adb == null) adb = ShellBuilder.FindExecutable("adb.exe");
+            string adb = FindAdb(cwd);
             if (adb == null) { result.message += " 找不到 adb.exe；請安裝 Platform Tools，加入 PATH 或放在終端啟動資料夾。"; return result; }
+            result.adbPath = adb;
             try {
                 using (var process = new Process { StartInfo = new ProcessStartInfo(adb, "devices -l") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } }) {
                     process.Start(); Task<string> output = process.StandardOutput.ReadToEndAsync(), error = process.StandardError.ReadToEndAsync();

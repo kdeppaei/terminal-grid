@@ -1,4 +1,10 @@
-# Terminal Grid 3.13.0
+# Terminal Grid 3.14.0
+
+- 「更多 → ADB 抓 Log」可選已授權裝置序號及本機目的資料夾，產生 `adb -s SERIAL pull /data/debuglogger/` 或 `adb -s SERIAL pull /sdcard/log` 指令。
+- 「更多 → 開啟手機 App／SysDump」可搜尋指定裝置可啟動的 App，並將它切到前景。可選含有 adb.exe 的 Platform Tools 或 scrcpy 資料夾。
+- Samsung SysDump 入口把 `*#9900#` 帶入撥號器，部分裝置需用 Samsung 電話鍵盤手動鍵入。已驗證模擬裝置路由，實機行為需依機型與韌體確認。
+
+## Terminal Grid 3.13.0
 
 - 智慧指令補全依本次歷史、指令庫與暫存值提供前綴和拼字建議。
 - 輸入列、草稿與終端原位替換支援 Ctrl+Space。框選後只替換選取範圍，保留指令的其他參數。
