@@ -16,7 +16,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.14.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.14.1.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -157,7 +157,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.14.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = "3.14.1", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -229,6 +229,7 @@ namespace TerminalGridIntegrated
                 if (type == "flowOpen") { Ui(OpenFlow); return; }
                 if (type == "flowSave") { Ui(delegate { SaveFlow(StringValue(message, "text")); }); return; }
                 if (type == "androidApps" || type == "androidLaunch") { RunAndroidAction(type, message); return; }
+                if (type == "browseAndroidPath") { BrowseAndroidPath(message); return; }
                 if (type == "runSave") { SaveRun(StringValue(message, "runId"), StringValue(message, "text")); return; }
                 if (type == "exportLog") { Ui(delegate { ExportLog(StringValue(message, "text")); }); return; }
                 if (type == "captureEvidence") { CaptureEvidence(message); return; }
@@ -337,6 +338,23 @@ namespace TerminalGridIntegrated
             catch (Exception ex) { Status("操作未完成：" + ex.Message); }
         }
         bool targetDiscoveryBusy;
+        void BrowseAndroidPath(IDictionary<string, object> message)
+        {
+            string id = StringValue(message, "requestId"), serial = StringValue(message, "serial");
+            string folder = StringValue(message, "toolsFolder"), path = StringValue(message, "path");
+            Task.Run(delegate {
+                try {
+                    if (!AndroidLaunch.ValidSerial(serial)) throw new ArgumentException("請先選擇 ADB 裝置。");
+                    string adb = AdbFiles.FindAdb(folder);
+                    var client = new AdbFiles(adb, serial, "", CancellationToken.None);
+                    var entries = client.ListDirectory(path);
+                    Ui(delegate { Send(new { type = "androidPathResult", requestId = id, entries = entries, adbPath = adb }); });
+                } catch (Exception ex) {
+                    string error = ex.Message.Length <= 500 ? ex.Message : ex.Message.Substring(0, 500);
+                    Ui(delegate { Send(new { type = "androidPathResult", requestId = id, error = error }); });
+                }
+            });
+        }
         void RunAndroidAction(string type, IDictionary<string, object> message)
         {
             string requestId = StringValue(message, "requestId"), serial = StringValue(message, "serial");

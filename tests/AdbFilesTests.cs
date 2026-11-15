@@ -20,6 +20,10 @@ class AdbFilesTests {
         string path = "/vendor/firmware/wifi 4's.cfg";
         Check(AdbFiles.RemotePath("vendor/firmware/wifi 4.cfg") == "/vendor/firmware/wifi 4.cfg", "normalize path with spaces");
         Check(AdbFiles.ShellQuote("/x/a'b") == "'/x/a'\"'\"'b'", "shell quoting");
+        var entries = client.ListDirectory("/sdcard/log/RD's run/");
+        Check(entries.Select(e => e.name).SequenceEqual(new[] { "2026 Run", ".hidden", "測試 1.log" }) && entries[0].directory, "remote listing keeps directory types and exact names");
+        Check(File.ReadAllText(Path.Combine(root, "calls.txt")).Contains("cd '/sdcard/log/RD'\"'\"'s run' || exit 1"), "remote listing safely quotes directory");
+        Check(Reject(() => client.ListDirectory("/data/denied")).Contains("Permission denied"), "remote listing reports permission failure");
         Reject(() => AdbFiles.RemotePath("/")); Reject(() => AdbFiles.RemotePath("/data/../wifi.cfg")); Reject(() => AdbFiles.RemotePath("/x\nreboot"));
         byte[] initial = Encoding.UTF8.GetBytes("# 設定\nkey=1\n"); File.WriteAllBytes(remote, initial);
         Check(client.ReadOptional(path).SequenceEqual(initial), "raw UTF8 read");

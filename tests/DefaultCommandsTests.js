@@ -29,10 +29,14 @@ assert.equal(d.resolve('{{TARGET_IPV6}}', { TARGET_IPV6: 'fe80::1234%12' }, 'Pow
 const pulls = d.packs.find(pack => pack.id === '@default-adb-logs').commands;
 assert.equal(pulls.length, 2);
 for (const [i, remote] of ['/data/debuglogger/', '/sdcard/log'].entries()) {
-  const values = { SERIAL: 'DEVICE-1', LOCAL_FOLDER: 'C:\\Logs folder' };
+  const field = d.pullPathKey(pulls[i].command);
+  assert.equal(d.fields[field][2], remote);
+  const custom = '/sdcard/測試 log/run ' + i + '.txt';
+  const values = { SERIAL: 'DEVICE-1', LOCAL_FOLDER: 'C:\\Logs folder', [field]: custom };
   assert.equal(d.resolve(pulls[i].command, values, 'CMD', 'C:\\Platform Tools\\adb.exe'),
-    '"C:\\Platform Tools\\adb.exe" -s "DEVICE-1" pull ' + remote + ' "C:\\Logs folder"');
+    '"C:\\Platform Tools\\adb.exe" -s "DEVICE-1" pull "' + custom + '" "C:\\Logs folder"');
   assert.equal(d.resolve(pulls[i].command, values, 'PowerShell', 'C:\\Platform Tools\\adb.exe'),
-    "& 'C:\\Platform Tools\\adb.exe' -s 'DEVICE-1' pull " + remote + " 'C:\\Logs folder'");
+    "& 'C:\\Platform Tools\\adb.exe' -s 'DEVICE-1' pull '" + custom + "' 'C:\\Logs folder'");
+  assert.throws(() => d.resolve(pulls[i].command, { ...values, [field]: 'relative.log' }, 'CMD'), /絕對路徑/);
 }
 console.log('Default catalog: ' + d.packs.length + ' packs, ' + all.length + ' commands; templates, quoting and invalid paths passed.');

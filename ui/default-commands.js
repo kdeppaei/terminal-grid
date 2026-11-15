@@ -3,8 +3,8 @@
   // Built-in reference templates are separate from editable/exported user packs.
   var packs = [];
   var logPull = [
-    ['Pull /data/debuglogger/', 'adb -s {{SERIAL}} pull /data/debuglogger/ {{LOCAL_FOLDER}}', '下載裝置的 DebugLogger 資料夾，需要該路徑的讀取權限。'],
-    ['Pull /sdcard/log', 'adb -s {{SERIAL}} pull /sdcard/log {{LOCAL_FOLDER}}', '下載已寫入手機內部儲存空間 log 資料夾的檔案。']
+    ['Pull /data/debuglogger/', 'adb -s {{SERIAL}} pull {{DEBUGLOGGER_PATH}} {{LOCAL_FOLDER}}', '預填 /data/debuglogger/，可指定其他手機檔案或資料夾。'],
+    ['Pull /sdcard/log', 'adb -s {{SERIAL}} pull {{SDCARD_LOG_PATH}} {{LOCAL_FOLDER}}', '預填 /sdcard/log，可指定其他手機檔案或資料夾。']
   ];
   function prepare(text) {
     return text.replace(/\bDEVICE_SERIAL\b/g, '{{SERIAL}}').replace(/\b192\.0\.2\.10\b/g, '{{TARGET_IPV4}}')
@@ -151,7 +151,9 @@
     AWARE_IPV6: ['DUT1 IPv6%發送端介面', 'aware', ''],
     AWARE_SCOPE: ['Wi-Fi Aware scope（含 %）', 'scope', ''],
     AWARE_IFACE: ['Wi-Fi Aware 介面', 'interface', ''],
-    REMOTE_PATH: ['裝置路徑', 'text', '/sdcard/Download/test.dat']
+    REMOTE_PATH: ['裝置路徑', 'text', '/sdcard/Download/test.dat'],
+    DEBUGLOGGER_PATH: ['手機來源路徑', 'text', '/data/debuglogger/'],
+    SDCARD_LOG_PATH: ['手機來源路徑', 'text', '/sdcard/log']
   };
   function quote(value, shell, key) {
     if (!value || /[\x00-\x1f\x7f"]/.test(value)) throw Error('請填入單行路徑或參數，不可含雙引號。');
@@ -169,9 +171,14 @@
     return '"' + value + '"';
   }
   function keys(text) { return Array.from(new Set((text.match(/\{\{[A-Z][A-Z0-9_]*\}\}/g) || []).map(function (s) { return s.slice(2, -2); }))).filter(function (k) { return fields[k]; }); }
-  function isLogPull(text) { return logPull.some(function (entry) { return entry[1] === text; }); }
+  function pullPathKey(text) {
+    var match = /^adb -s \{\{SERIAL\}\} pull \{\{(REMOTE_PATH|DEBUGLOGGER_PATH|SDCARD_LOG_PATH)\}\} \{\{LOCAL_FOLDER\}\}$/.exec(text);
+    return match ? match[1] : '';
+  }
   function resolve(text, values, shell, adbPath) {
-    if (adbPath && isLogPull(text)) {
+    var remoteKey = pullPathKey(text);
+    if (remoteKey && !/^\//.test(values[remoteKey] || '')) throw Error('手機來源請填 Android 絕對路徑，例如 /sdcard/log。');
+    if (adbPath && remoteKey) {
       var executable = quote(adbPath, shell, '');
       text = (shell === 'CMD' ? '' : '& ') + executable + text.slice(3);
     }
@@ -183,5 +190,5 @@
       return quote(values[key], shell, key);
     });
   }
-  root.TerminalGridDefaults = { packs: packs, fields: fields, keys: keys, resolve: resolve, prepare: prepare, isLogPull: isLogPull };
+  root.TerminalGridDefaults = { packs: packs, fields: fields, keys: keys, resolve: resolve, prepare: prepare, pullPathKey: pullPathKey };
 }(typeof window === 'undefined' ? globalThis : window));

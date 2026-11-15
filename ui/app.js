@@ -32,6 +32,7 @@
   }
   var pathCommandTarget = null, pathPickPending = null, targetDiscoveryRequest = null, targetCandidates = [], flowPreparing = false;
   var adbToolsFolder = '', adbToolsPick = null, appsRequest = null, appsAdbPath = '', appComponents = [];
+  var remoteBrowser = null;
   function refreshTargetOptions() {
     $('pathCommandFields').querySelectorAll('select[data-target-key]').forEach(function (select) {
       var key = select.dataset.targetKey, kind = window.TerminalGridDefaults.fields[key][1];
@@ -129,6 +130,45 @@
     renderCommandLibrary();
     $('commandDialog').showModal();
   }
+  function selectedRemoteEntry() {
+    var selected = Number($('androidBrowseEntries').value);
+    return remoteBrowser && $('androidBrowseEntries').selectedIndex >= 0 ? remoteBrowser.entries[selected] : null;
+  }
+  function requestRemoteDirectory(path) {
+    var browser = remoteBrowser;
+    if (!browser) return;
+    path = path.trim().replace(/\/+$/, '') || '/';
+    if (path[0] !== '/') { $('androidBrowseStatus').textContent = '請輸入手機的絕對路徑。'; return; }
+    $('androidBrowsePath').value = path;
+    browser.path = path;
+    browser.loaded = false;
+    browser.entries = [];
+    browser.requestId = uid('remote-dir');
+    $('androidBrowseEntries').replaceChildren();
+    $('androidBrowseStatus').textContent = '正在讀取 ' + browser.serial + ' 的資料夾…';
+    updateRemoteBrowserButtons();
+    if (!send({ type: 'browseAndroidPath', requestId: browser.requestId, serial: browser.serial, path: path, toolsFolder: browser.folder }))
+      $('androidBrowseStatus').textContent = '無法連接終端引擎，可關閉後手動輸入路徑。';
+  }
+  function openRemoteBrowser(input) {
+    var serial = $('pathCommandFields').querySelector('[data-path-key="SERIAL"]').value.trim();
+    if (!serial) { $('targetDiscoveryStatus').textContent = '請先選擇或填入要瀏覽的裝置序號。'; return; }
+    var adbPath = pathCommandTarget.adbPath || '';
+    remoteBrowser = { input: input, target: pathCommandTarget, serial: serial,
+      folder: adbPath ? adbPath.replace(/[^\\/]+$/, '') : adbToolsFolder, entries: [] };
+    $('androidBrowseTitle').textContent = '瀏覽手機來源 · ' + serial;
+    $('androidBrowseDialog').showModal();
+    var initial = input.value.trim();
+    requestRemoteDirectory(initial.startsWith('/') ? initial : '/sdcard');
+  }
+  function updateRemoteBrowserButtons() {
+    var entry = selectedRemoteEntry();
+    var current = remoteBrowser && remoteBrowser.loaded && $('androidBrowsePath').value === remoteBrowser.path;
+    $('androidBrowseEnter').disabled = !current || !entry || !entry.directory;
+    $('androidBrowseUse').disabled = !current;
+    $('androidBrowseUse').textContent = entry ? '使用選取的' + (entry.directory ? '資料夾' : '檔案') : '使用目前資料夾';
+  }
+  function remoteEntryPath(entry) { return remoteBrowser.path.replace(/\/$/, '') + '/' + entry.name; }
   function completionSources() {
     if (completionCatalog !== appConfig.commandPacks) {
       completionCatalog = appConfig.commandPacks;
@@ -163,11 +203,26 @@
       replace: !!(state.terminal.hasSelection() || state.liveIntent), selection: state.liveSelection };
     targetCandidates = [];
     var fields = $('pathCommandFields'); fields.textContent = '';
+    var remoteKey = window.TerminalGridDefaults.pullPathKey(text);
     $('shareFlowParamsLabel').hidden = !shared; $('shareFlowParams').checked = !!shared;
     window.TerminalGridDefaults.keys(text).forEach(function (key) {
       var spec = window.TerminalGridDefaults.fields[key], label = document.createElement('label'); label.className = 'field'; label.textContent = spec[0];
       var row = document.createElement('div'); row.className = 'folder-input-row';
       var input = document.createElement('input'); input.dataset.pathKey = key; input.required = true; input.value = shared && shared[key] || spec[2]; input.setAttribute('aria-label', spec[0]); row.appendChild(input);
+      if (key === remoteKey) {
+        label.firstChild.textContent = '手機來源路徑';
+        input.placeholder = '/sdcard/log 或完整檔案路徑';
+        input.setAttribute('aria-label', '手機來源路徑');
+        var browse = document.createElement('button');
+        browse.className = 'button'; browse.type = 'button'; browse.textContent = '瀏覽手機…';
+        browse.addEventListener('click', function () { openRemoteBrowser(input); });
+        row.appendChild(browse);
+      }
+      if (remoteKey && key === 'LOCAL_FOLDER') {
+        label.firstChild.textContent = '本機目的路徑';
+        input.setAttribute('aria-label', '本機目的路徑');
+        input.placeholder = '例如 D:\\Test Logs';
+      }
       if (key === 'SERIAL') input.addEventListener('change', refreshTargetOptions);
       if (spec[1] !== 'text') {
         var select = document.createElement('select'); select.dataset.targetKey = key; select.setAttribute('aria-label', spec[0] + '偵測結果');
@@ -334,11 +389,15 @@
     $('capturePanel').hidden = !open; $('captureButton').setAttribute('aria-expanded', String(open)); scheduleFit();
   }
   function resetCaptureScanner(state) {
-    state.transcript = window.TerminalGridFlowOutput.create();
-    state.iperfOutput = null; state.pendingCommand = '';
-    state.logMarkers = [];
     state.captureDecoder = new TextDecoder('utf-8');
     state.captureScanner = window.TerminalGridIPv6.createScanner(function (entry) { recordCapture(state, entry); });
+  }
+  function resetTerminalRecords(state) {
+    state.transcript = window.TerminalGridFlowOutput.create();
+    state.iperfOutput = null;
+    state.pendingCommand = '';
+    state.logMarkers = [];
+    resetCaptureScanner(state);
   }
   function recordCapture(state, entry) {
     if (!$('captureEnabled').checked || getState(state.workspaceId, state.slot, state.tabId) !== state) return;
@@ -597,7 +656,7 @@
     var fit = new window.FitAddon.FitAddon(); terminal.loadAddon(fit); terminal.open(mount.querySelector('.terminal-mount'));
     var state = { workspaceId: view.config.id, slot: slot, tabId: tabConfig.id, routeId: uid('route'), layer: mount, terminal: terminal, fit: fit,
       status: 'idle', generation: null, pid: null, exitCode: null, hasOutput: false, clearOnStarted: false };
-    resetCaptureScanner(state);
+    resetTerminalRecords(state);
     view.panes[slot].tabs.push(state);
     state.sessionShell = tabConfig.shell;
     state.liveReplace = window.TerminalGridLiveReplace.create(terminal, {
@@ -1212,6 +1271,26 @@
       saveConfig(false); return;
     }
     if (message.type === 'batchFiles') { handleBatchFiles(message); return; }
+    if (message.type === 'androidPathResult') {
+      var browser = remoteBrowser;
+      if (!browser || browser.requestId !== message.requestId || browser.target !== pathCommandTarget || !$('androidBrowseDialog').open) return;
+      if (message.error) {
+        $('androidBrowseStatus').textContent = message.error;
+        return;
+      }
+      if (message.adbPath) {
+        browser.target.adbPath = message.adbPath;
+        browser.folder = message.adbPath.replace(/[^\\/]+$/, '');
+      }
+      browser.entries = message.entries || [];
+      browser.entries.forEach(function (entry, index) {
+        $('androidBrowseEntries').add(new Option(entry.name + (entry.directory ? '/' : ''), index));
+      });
+      browser.loaded = true;
+      $('androidBrowseStatus').textContent = browser.entries.length ? '選取檔案或資料夾。' : '此資料夾目前沒有項目。';
+      updateRemoteBrowserButtons();
+      return;
+    }
     if (adbToolsPick && message.type === 'commandPathPicked' && message.requestId === adbToolsPick.id) {
       var picker = adbToolsPick; adbToolsPick = null;
       if (picker.dialog.open && !message.cancelled && !message.error && typeof message.path === 'string') {
@@ -1314,7 +1393,7 @@
     if (message.type === 'started') {
       completionMenu.close(state.rawCompletion); state.completionTypingUntil = 0;
       if (isStale(state, message, true)) return;
-      pruneCaptures(state); resetCaptureScanner(state);
+      pruneCaptures(state); resetTerminalRecords(state);
       state.liveReplace.reset(); state.liveSelection = null; state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
       state.recording = false; state.recordingPath = null;
       var startedTab = getTabConfig(view.config, state.slot, state.tabId);
@@ -2118,6 +2197,29 @@
     $('toggleTerminalRecording').disabled = logState.status !== 'running';
   }
   function initialize() {
+    $('androidBrowseDialog').addEventListener('close', function () { if (!this.open) remoteBrowser = null; });
+    $('androidBrowseForm').addEventListener('submit', function (event) { event.preventDefault(); requestRemoteDirectory($('androidBrowsePath').value); });
+    $('androidBrowseUp').addEventListener('click', function () {
+      var path = $('androidBrowsePath').value.trim().replace(/\/+$/, '');
+      requestRemoteDirectory(path.slice(0, path.lastIndexOf('/')) || '/');
+    });
+    document.querySelectorAll('[data-remote-dir]').forEach(function (button) {
+      button.addEventListener('click', function () { requestRemoteDirectory(this.dataset.remoteDir); });
+    });
+    function enterRemoteDirectory() {
+      var entry = selectedRemoteEntry();
+      if (!$('androidBrowseEnter').disabled && entry && entry.directory) requestRemoteDirectory(remoteEntryPath(entry));
+    }
+    $('androidBrowsePath').addEventListener('input', updateRemoteBrowserButtons);
+    $('androidBrowseEntries').addEventListener('change', updateRemoteBrowserButtons);
+    $('androidBrowseEntries').addEventListener('dblclick', enterRemoteDirectory);
+    $('androidBrowseEnter').addEventListener('click', enterRemoteDirectory);
+    $('androidBrowseUse').addEventListener('click', function () {
+      if (this.disabled || !remoteBrowser || remoteBrowser.target !== pathCommandTarget) return;
+      var entry = selectedRemoteEntry();
+      remoteBrowser.input.value = entry ? remoteEntryPath(entry) : remoteBrowser.path;
+      $('androidBrowseDialog').close();
+    });
     try { adbToolsFolder = localStorage.getItem('terminalGrid.adbToolsFolder') || ''; } catch (_) { }
     $('adbLogsButton').addEventListener('click', openAdbLogs);
     $('androidAppsButton').addEventListener('click', function () {
@@ -2246,6 +2348,7 @@
     $('refreshCommandTargets').after(pickPullAdb);
     $('pathCommandDialog').addEventListener('close', function () {
       if (this.open) return;
+      if ($('androidBrowseDialog').open) $('androidBrowseDialog').close();
       var target = pathCommandTarget; pathCommandTarget = null; pathPickPending = null; targetDiscoveryRequest = null;
       if (target && target.finish) target.finish(null);
     });
@@ -2260,13 +2363,13 @@
         if (target.shared && $('shareFlowParams').checked) Object.assign(target.shared, values);
         pathCommandTarget = null; pathPickPending = null; targetDiscoveryRequest = null;
         $('pathCommandDialog').close();
-        if (!target.finish && window.TerminalGridDefaults.isLogPull(target.text) && $('commandDialog').open) $('commandDialog').close();
+        if (!target.finish && window.TerminalGridDefaults.pullPathKey(target.text) && $('commandDialog').open) $('commandDialog').close();
         if (target.finish) target.finish(text);
         else if (target.replace) {
           if (!target.selection) showToast('請重新框選可編輯的指令內容。', true);
           else replaceLiveSelection(target.state, text, target.selection);
         } else insertCommand(target.state, text, false, true);
-      } catch (error) { showToast(error.message, true); }
+      } catch (error) { $('targetDiscoveryStatus').textContent = error.message; }
     });
     try { if (localStorage.getItem('terminalGrid.rightClickMode') === 'menu') rightClickMode = 'menu'; } catch (_) { }
     $('rightClickMode').value = rightClickMode;

@@ -156,6 +156,25 @@
     <div class="modal-actions"><button id="androidSysdump" type="button" class="button" disabled>將 *#9900# 帶入撥號器</button><button id="launchAndroidApp" type="button" class="button primary" disabled>在手機開啟 App</button></div>
   </dialog>
   <script src="completion.js"></script>
+  <dialog id="androidBrowseDialog" class="modal" aria-labelledby="androidBrowseTitle">
+    <div class="modal-heading"><h2 id="androidBrowseTitle">瀏覽手機來源</h2><button type="button" class="icon-button" data-close="androidBrowseDialog" aria-label="關閉手機瀏覽器">×</button></div>
+    <div class="modal-content">
+      <form id="androidBrowseForm" class="field">
+        <label for="androidBrowsePath">手機資料夾</label>
+        <div class="folder-input-row"><input id="androidBrowsePath" maxlength="2048" required><button type="submit" class="button">前往</button><button id="androidBrowseUp" type="button" class="button">上一層</button></div>
+      </form>
+      <div class="folder-input-row">
+        <button type="button" class="button" data-remote-dir="/sdcard/log">/sdcard/log</button>
+        <button type="button" class="button" data-remote-dir="/data/debuglogger">/data/debuglogger</button>
+      </div>
+      <label class="field">檔案或資料夾<select id="androidBrowseEntries" size="7"></select></label>
+      <p id="androidBrowseStatus" class="help-note" role="status"></p>
+    </div>
+    <div class="modal-actions">
+      <button id="androidBrowseEnter" type="button" class="button" disabled>進入選取的資料夾</button>
+      <button id="androidBrowseUse" type="button" class="button primary" disabled>使用目前資料夾</button>
+    </div>
+  </dialog>
   <script src="app.js"></script>
 </body>
 </html>

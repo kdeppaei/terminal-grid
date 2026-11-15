@@ -1,4 +1,9 @@
-# Terminal Grid 3.14.0
+# Terminal Grid 3.14.1
+
+- ADB Pull 可指定手機來源與本機目的路徑。抓 Log 捷徑預填 `/data/debuglogger/` 或 `/sdcard/log`，可修改或在指定手機上瀏覽檔案與資料夾。
+- 切換 IPv6 自動擷取會保留近期終端 Log 與手動標記。
+
+## Terminal Grid 3.14.0
 
 - 「更多 → ADB 抓 Log」可選已授權裝置序號及本機目的資料夾，產生 `adb -s SERIAL pull /data/debuglogger/` 或 `adb -s SERIAL pull /sdcard/log` 指令。
 - 「更多 → 開啟手機 App／SysDump」可搜尋指定裝置可啟動的 App，並將它切到前景。可選含有 adb.exe 的 Platform Tools 或 scrcpy 資料夾。

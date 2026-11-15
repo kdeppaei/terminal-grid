@@ -94,6 +94,34 @@ namespace TerminalGridIntegrated
             }
         }
         public byte[] Read(string path) { return Run(new[] { "shell", "-T", "cat " + ShellQuote(RemotePath(path)) }); }
+        internal sealed class RemoteEntry
+        {
+            public string name { get; set; }
+            public bool directory { get; set; }
+        }
+        internal RemoteEntry[] ListDirectory(string path)
+        {
+            string directory = String.IsNullOrWhiteSpace(path) || path.Trim() == "/" ? "/" : RemotePath(path).TrimEnd('/');
+            // Null-delimited names let us preserve spaces and Unicode. Test
+            // directory flags in the shell instead of parsing ls display text.
+            string command = "cd " + ShellQuote(directory) + " || exit 1; " +
+                "[ -r . ] && [ -x . ] || { echo 'Cannot read this directory' >&2; exit 1; }; " +
+                "count=0; for entry in ./* ./.[!.]* ./..?*; do " +
+                "[ -e \"$entry\" ] || continue; " +
+                "if [ -d \"$entry\" ]; then kind=d; else kind=f; fi; " +
+                "printf '%s%s\\000' \"$kind\" \"${entry#./}\"; " +
+                "count=$((count+1)); [ \"$count\" -lt 1000 ] || break; done; exit 0";
+            return ParseDirectory(Run(new[] { "shell", "-T", command }, null, 10000));
+        }
+        internal static RemoteEntry[] ParseDirectory(byte[] payload)
+        {
+            return Encoding.UTF8.GetString(payload).Split('\0')
+                .Where(item => item.Length > 1 && (item[0] == 'd' || item[0] == 'f'))
+                .Select(item => new RemoteEntry { name = item.Substring(1), directory = item[0] == 'd' })
+                .Where(item => item.name != "." && item.name != ".." && item.name.IndexOf('/') < 0 && !item.name.Any(Char.IsControl))
+                .OrderByDescending(item => item.directory)
+                .ThenBy(item => item.name, StringComparer.OrdinalIgnoreCase).Take(1000).ToArray();
+        }
         public byte[] ReadOptional(string path)
         {
             path = RemotePath(path);

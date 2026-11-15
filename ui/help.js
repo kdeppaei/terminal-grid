@@ -1,10 +1,11 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.14.0', updated: '2026-11-15',
+    version: '3.14.1', updated: '2026-11-15',
     sections: [
       { name: '本版更新', paragraphs: [
-        ['ADB 抓 Log', '從更多開啟指令庫的「ADB／抓 Log」。選 /data/debuglogger/ 或 /sdcard/log，再選已授權裝置和本機資料夾，插入後按終端 Enter 開始下載。'],
+        ['ADB 抓 Log', '從更多開啟「ADB 抓 Log」。選已授權裝置，直接修改預填的 /data/debuglogger/ 或 /sdcard/log，或按「瀏覽手機」選檔案／資料夾。本機目的路徑可輸入或選資料夾。插入後按終端 Enter 開始下載。'],
+        ['終端 Log 保留', '切換 IPv6 自動擷取時會保留近期終端輸出和手動標記。'],
         ['開啟手機 App', '在更多選「開啟手機 App／SysDump」，選 ADB 裝置並搜尋套件或 Activity。按「在手機開啟 App」可進入當前 Android 使用者可啟動的 App。'],
         ['Samsung SysDump', '選「將 *#9900# 帶入撥號器」，再看手機是否進入 SysDump。如果只開了撥號畫面，在 Samsung 電話鍵盤清空後手動鍵入 *#9900#。完成 Run dumpstate/logcat 與 Copy to sd card 後可 Pull /sdcard/log。'],
         ['智慧指令建議', '從指令庫、本次歷史與資料暫存找出可用建議。輸入 ipref3 可選 iperf3。框選指令的一部分後按 Ctrl+Space，可只替換選取的字。'],

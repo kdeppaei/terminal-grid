@@ -12,6 +12,12 @@ class FilesFakeAdb {
         if (args[2] == "push") { File.Copy(args[3], Path.Combine(root, "pushed.bin"), true); return 0; }
         string command = args[4];
         if (command == "hang") { Thread.Sleep(30000); return 0; }
+        if (command.StartsWith("cd ")) {
+            if (command.StartsWith("cd '/data/denied'")) { Console.Error.Write("Permission denied"); return 1; }
+            var payload = Encoding.UTF8.GetBytes("f測試 1.log\0d2026 Run\0f.hidden\0d..\0fbroken/entry\0");
+            Console.OpenStandardOutput().Write(payload, 0, payload.Length);
+            return 0;
+        }
         if (command.StartsWith("if [")) { Console.Write(File.Exists(file) ? "FILE" : "MISSING"); return 0; }
         if (command.StartsWith("cat >")) {
             if (File.Exists(Path.Combine(root, "deny"))) { Console.Error.Write("Read-only file system"); return 1; }
