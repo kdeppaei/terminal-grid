@@ -9,6 +9,7 @@
   var toastTimer = null, confirmation = null, currentFlowId = null, flowRunning = false;
   var workspaceEditingId = null, packEditingId = null, commandEditingRef = null, flowPauseResolve = null;
   var capturedValues = [], captureRenderTimer = null, captureAutoOpened = false, captureDragging = false;
+  var captureCommand = null;
   var commandDraft = null, draftTarget = null, focusedEditor = null;
   var rightClickMode = 'quick';
   var nanDiscoveryId = null, nanPathId = null;
@@ -41,13 +42,13 @@
       var input = $('pathCommandFields').querySelector('[data-path-key="' + key + '"]');
       select.textContent = ''; select.add(new Option('選擇偵測結果，或在下方手動輸入', ''));
       var seen = new Set();
-      var candidates = targetCandidates.concat(capturedValues.map(function (v) { return { value: v.address, label: '暫存 · ' + v.address, kind: 'saved' }; }));
+      var candidates = targetCandidates.concat(currentCaptures().map(function (v) { return { value: v.address, label: '暫存 · ' + v.address, kind: 'saved' }; }));
       var aware = targetCandidates.filter(function (c) { return c.kind === 'android' && /^aware[_-]data\d+$/i.test(c.interfaceName); });
       if (kind === 'scope') {
         var serialInput = $('pathCommandFields').querySelector('[data-path-key="SERIAL"]');
         candidates = aware.filter(function (c) { return !serialInput || !serialInput.value || c.serial === serialInput.value; })
           .map(function (c) { return { value: '%' + c.interfaceName, label: c.serial + ' · %' + c.interfaceName }; });
-        capturedValues.filter(function (item) { return item.kind === 'scope'; }).forEach(function (item) {
+        currentCaptures().filter(function (item) { return item.kind === 'scope'; }).forEach(function (item) {
           candidates.push({ value: item.address, label: item.source + ' · ' + item.address });
         });
       }
@@ -187,7 +188,7 @@
       completionLiterals = items.filter(function (item) { return item.literal && validLineText(item.command); })
         .map(function (item) { return { address: item.command, kind: 'literal' }; });
     }
-    return { commands: completionCommands, history: completionHistory, values: capturedValues.concat(completionLiterals) };
+    return { commands: completionCommands, history: completionHistory, values: currentCaptures().concat(completionLiterals) };
   }
   function rememberCommand(command) {
     if (!completionEnabled()) return;
@@ -208,6 +209,36 @@
     completion.offer(false);
     return completion;
   }
+  function pullLogCategory(path) {
+    var match = /^\/(data\/debuglogger|sdcard\/log)(?:\/|$)/.exec(path.trim());
+    return match ? match[1] : '';
+  }
+  function pullDestination(category, value) {
+    if (!category) return '';
+    var key = 'terminalGrid.pullDestination.' + category;
+    try {
+      if (value !== undefined) localStorage.setItem(key, value);
+      var saved = localStorage.getItem(key) || '';
+      return saved.length <= 4096 && validLineText(saved) ? saved : '';
+    } catch (_) { return ''; }
+  }
+  function updatePullPreview(event) {
+    var target = pathCommandTarget;
+    if (!target || !target.pullRemoteKey) return;
+    var fields = $('pathCommandFields'), remote = fields.querySelector('[data-path-key="' + target.pullRemoteKey + '"]');
+    var local = fields.querySelector('[data-path-key="LOCAL_FOLDER"]'), serial = fields.querySelector('[data-path-key="SERIAL"]');
+    if (!remote || !local) return;
+    if (event && event.target === local) target.pullDestinationEdited = true;
+    var category = pullLogCategory(remote.value);
+    if (category !== target.pullCategory) {
+      if (!target.pullDestinationEdited) local.value = pullDestination(category);
+      target.pullCategory = category;
+    }
+    var preview = $('pullCommandPreview');
+    preview.textContent = '裝置  ' + (serial && serial.value.trim() || '請選擇') +
+      '\n手機來源  ' + (remote.value.trim() || '請輸入') +
+      '\n本機目的地  ' + (local.value.trim() || '請選擇或輸入');
+  }
   function openPathCommand(state, text, finish, shared) {
     if ($('pathCommandDialog').open) { showToast('請先完成目前參數選擇。'); if (finish) finish(null); return; }
     text = window.TerminalGridDefaults.prepare(text);
@@ -216,6 +247,8 @@
     targetCandidates = [];
     var fields = $('pathCommandFields'); fields.textContent = '';
     var remoteKey = window.TerminalGridDefaults.pullPathKey(text);
+    pathCommandTarget.pullRemoteKey = remoteKey;
+    pathCommandTarget.pullDestinationEdited = !!(shared && shared.LOCAL_FOLDER);
     $('shareFlowParamsLabel').hidden = !shared; $('shareFlowParams').checked = !!shared;
     window.TerminalGridDefaults.keys(text).forEach(function (key) {
       var spec = window.TerminalGridDefaults.fields[key], label = document.createElement('label'); label.className = 'field'; label.textContent = spec[0];
@@ -238,7 +271,9 @@
       if (key === 'SERIAL') input.addEventListener('change', refreshTargetOptions);
       if (spec[1] !== 'text') {
         var select = document.createElement('select'); select.dataset.targetKey = key; select.setAttribute('aria-label', spec[0] + '偵測結果');
-        select.addEventListener('change', function () { if (this.value) { input.value = this.value; if (key === 'SERIAL') refreshTargetOptions(); } }); label.appendChild(select);
+        select.addEventListener('change', function () {
+          if (this.value) { input.value = this.value; input.dispatchEvent(new Event('input', { bubbles: true })); if (key === 'SERIAL') refreshTargetOptions(); }
+        }); label.appendChild(select);
       }
       if (['source', 'folder', 'apk'].indexOf(spec[1]) >= 0) (spec[1] === 'source' ? ['file', 'folder'] : [spec[1]]).forEach(function (kind) {
         var button = document.createElement('button'); button.type = 'button'; button.className = 'button'; button.textContent = kind === 'folder' ? '選資料夾…' : '選檔案…';
@@ -250,6 +285,11 @@
       });
       label.appendChild(row); fields.appendChild(label);
     });
+    if (remoteKey) {
+      var preview = document.createElement('p'); preview.id = 'pullCommandPreview'; preview.className = 'help-note';
+      preview.setAttribute('role', 'status'); preview.style.whiteSpace = 'pre-line'; preview.style.overflowWrap = 'anywhere';
+      fields.appendChild(preview); updatePullPreview();
+    }
     $('pathCommandDialog').showModal();
     refreshTargetOptions();
     $('targetDiscoveryStatus').textContent = '';
@@ -331,7 +371,7 @@
         commands: (Array.isArray(p.commands) ? p.commands : []).slice(0, 128).map(function (c) {
           c = c || {};
           return { id: str(c.id, 64) || uid('cmd'), name: str(c.name, 80).trim() || '常用指令',
-            description: str(c.description, 240), command: str(c.command, 16000), literal: c.literal === true };
+            description: str(c.description, 240), command: str(c.command, 16000), literal: c.literal === true, pinned: c.pinned === true };
         }) };
     }) : [];
     if (!packs.length) packs.push({ id: uid('pack'), name: '網路測試常用指令', commands: [
@@ -403,8 +443,17 @@
   function resetCaptureScanner(state) {
     state.captureDecoder = new TextDecoder('utf-8');
     function capture(entry) { recordCapture(state, entry); }
-    state.captureScanner = window.TerminalGridIPv6.createScanner(capture, capture);
+    state.captureScanner = window.TerminalGridIPv6.createScanner(capture, capture, function (interfaceName) {
+      capturedValues.forEach(function (item) {
+        if (captureFrom(item, state) && (interfaceName === null || item.interfaceName === interfaceName)) item.historical = true;
+      });
+      queueCaptureRender();
+    });
   }
+  function captureFrom(item, state) {
+    return item.workspaceId === state.workspaceId && item.slot === state.slot && item.tabId === state.tabId && item.generation === state.generation;
+  }
+  function currentCaptures() { return capturedValues.filter(function (item) { return !item.historical; }); }
   function resetTerminalRecords(state) {
     state.transcript = window.TerminalGridFlowOutput.create();
     state.iperfOutput = null;
@@ -480,7 +529,72 @@
     replace.addEventListener('click', function () { menu.hidden = true; replaceFocusedText(item.address); });
     var save = document.createElement('button'); save.type = 'button'; save.textContent = '儲存為常用文字片段…';
     save.addEventListener('click', function () { menu.hidden = true; addCommand(item.address); });
-    menu.append(copy, replace, save); positionContextMenu(menu, event.clientX, event.clientY);
+    menu.append(copy, replace, save);
+    if (!item.historical && window.TerminalGridIPv6.isIPv6(item.address)) {
+      ['ping6', 'iperf3'].forEach(function (tool) {
+        var button = document.createElement('button'); button.type = 'button'; button.textContent = '在 DUT2 產生 ' + tool + '…';
+        button.addEventListener('click', function () { menu.hidden = true; openCaptureCommand(item, tool); });
+        menu.appendChild(button);
+      });
+    }
+    positionContextMenu(menu, event.clientX, event.clientY);
+  }
+  function openCaptureCommand(item, tool) {
+    if (item.historical || !capturedValues.includes(item)) { showToast('請使用最近一次查詢的 IPv6。', true); return; }
+    var targets = [];
+    views.forEach(function (view) { view.panes.forEach(function (cell) { cell.tabs.forEach(function (state) {
+      if (state.status === 'running' && !captureFrom(item, state)) targets.push({ state: state, generation: state.generation });
+    }); }); });
+    captureCommand = { item: item, tool: tool, targets: targets };
+    $('captureCommandTitle').textContent = '在 DUT2 產生 ' + tool;
+    $('captureCommandSource').textContent = item.source + ' · ' + item.address;
+    var select = $('captureCommandTarget'); select.textContent = ''; select.add(new Option('選擇已進入 DUT2 adb shell 的終端', ''));
+    targets.forEach(function (target, index) {
+      var state = target.state, workspace = getWorkspace(state.workspaceId), tab = getTabConfig(workspace, state.slot, state.tabId);
+      select.add(new Option(workspace.name + ' · ' + String(state.slot + 1).padStart(2, '0') + ' · ' + tab.name, String(index)));
+    });
+    if (targets.length === 1) select.value = '0';
+    refreshCaptureCommand(true); $('captureCommandDialog').showModal();
+  }
+  function refreshCaptureCommand(refill) {
+    var draft = captureCommand; if (!draft) return;
+    var target = $('captureCommandTarget').value === '' ? null : draft.targets[Number($('captureCommandTarget').value)];
+    var scope = $('captureCommandScope');
+    if (refill) {
+      scope.textContent = ''; scope.add(new Option('選擇發送端最近查詢的介面', ''));
+      if (target) {
+        var seen = new Set();
+        currentCaptures().filter(function (item) { return item.kind === 'scope' && captureFrom(item, target.state); }).forEach(function (item) {
+          if (!seen.has(item.address)) { seen.add(item.address); scope.add(new Option(item.address, item.address)); }
+        });
+        if (seen.size === 1) scope.selectedIndex = 1;
+      }
+    }
+    var sourceValid = capturedValues.includes(draft.item) && !draft.item.historical;
+    var scopeValid = target && currentCaptures().some(function (item) { return captureFrom(item, target.state) && item.kind === 'scope' && item.address === scope.value; });
+    var valid = sourceValid && target && sameSession(target.state, target.generation) && scopeValid;
+    var value = valid ? draft.tool + (draft.tool === 'iperf3' ? ' -c' : '') + ' "' + draft.item.address.split('%')[0] + scope.value + '"' +
+      (draft.tool === 'iperf3' ? ' -f m -n 1300M' : '') : '';
+    $('captureCommandPreview').value = value; $('captureCommandApply').disabled = !valid;
+    $('captureCommandStatus').textContent = !sourceValid ? '目標位址已更新，請關閉後選擇最新 IPv6。' :
+      !target ? '請選擇發送端終端。' : !sameSession(target.state, target.generation) ? '發送端已重啟或結束，請重新選擇。' :
+      !scopeValid ? '請先在此發送端執行 ifconfig 或 ip addr，再按重新讀取介面。' : '填入後可在 DUT2 輸入列檢查，再按 Enter 送出。';
+    return valid ? { target: target, text: value } : null;
+  }
+  async function applyCaptureCommand() {
+    var draft = captureCommand, command = refreshCaptureCommand(false); if (!command) return;
+    var input = command.target.state.lineInput;
+    if (input.value && !await askConfirmation('取代 DUT2 輸入列內容？', input.value, '取代')) return;
+    if (captureCommand !== draft || !refreshCaptureCommand(false)) return;
+    var state = command.target.state, view = getView(state.workspaceId);
+    view.config.slots[state.slot].activeTabId = state.tabId;
+    activateWorkspace(state.workspaceId); view.zoomedSlot = null;
+    if (state.slot >= view.config.rows * view.config.cols) { view.config.rows = 4; view.config.cols = 4; }
+    applyLayout(view); renderPane(view, state.slot); markFocused(view, state.slot, state.tabId);
+    state.liveReplace.invalidate(); state.liveIntent = false; state.terminal.clearSelection(); updateLiveSelection(state);
+    input.value = command.text; input.dispatchEvent(new Event('input', { bubbles: true }));
+    if (!$('showLineEditors').checked) { $('showLineEditors').checked = true; $('showLineEditors').dispatchEvent(new Event('change')); }
+    $('captureCommandDialog').close(); input.focus(); input.setSelectionRange(input.value.length, input.value.length); queueSave();
   }
   function positionContextMenu(menu, x, y) {
     x = Number.isFinite(x) ? x : 8; y = Number.isFinite(y) ? y : 8;
@@ -488,13 +602,28 @@
     menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
   }
   function renderCaptures() {
-    var list = $('captureList'); list.textContent = '';
+    var list = $('captureList'), wasOpen = !!list.querySelector('.capture-history[open]'); list.textContent = '';
     $('captureCount').textContent = String(capturedValues.length);
     $('captureEmpty').hidden = capturedValues.length > 0; $('clearCapturesButton').disabled = capturedValues.length === 0;
-    capturedValues.forEach(function (item, index) {
+    var history = document.createElement('details'); history.className = 'capture-history'; history.open = wasOpen;
+    var summary = document.createElement('summary'); summary.textContent = '歷史查詢（' + capturedValues.filter(function (item) { return item.historical; }).length + '）';
+    history.appendChild(summary);
+    var groups = new Map();
+    capturedValues.forEach(function (item) {
+      var parent = item.historical ? history : list;
+      if (!item.historical && item.workspaceId) {
+        var groupKey = [item.workspaceId, item.slot, item.tabId].join('|');
+        if (!groups.has(groupKey)) {
+          var group = document.createElement('section'); group.className = 'capture-group';
+          var heading = document.createElement('h3'); heading.textContent = item.source; group.appendChild(heading);
+          groups.set(groupKey, group); list.appendChild(group);
+        }
+        parent = groups.get(groupKey);
+      }
       var row = document.createElement('article'); row.className = 'capture-item'; row.draggable = true; row.dataset.address = item.address;
+      row.dataset.historical = String(!!item.historical);
       var top = document.createElement('div'); top.className = 'capture-item-heading';
-      var label = document.createElement('span'); label.textContent = item.kind === 'scope' ? 'Wi-Fi Aware 介面' : index === 0 ? '最新擷取' : '擷取紀錄';
+      var label = document.createElement('span'); label.textContent = item.historical ? '先前查詢' : item.kind === 'scope' ? 'Wi-Fi Aware 介面' : '最近查詢';
       var time = document.createElement('time'); time.dateTime = item.seen.toISOString(); time.textContent = item.seen.toLocaleTimeString('zh-TW', { hour12: false }); time.title = item.seen.toLocaleString('zh-TW');
       top.append(label, time);
       var address = document.createElement('code'); address.className = 'capture-address'; address.textContent = item.address;
@@ -510,8 +639,10 @@
         captureDragging = true;
         event.dataTransfer.setData('application/x-terminalgrid-value', item.address); event.dataTransfer.setData('text/plain', item.address); event.dataTransfer.effectAllowed = 'copy';
       });
-      row.append(top, address, source, copy, replace, remove); list.appendChild(row);
+      row.append(top, address, source, copy, replace, remove); parent.appendChild(row);
     });
+    if (history.children.length > 1) list.appendChild(history);
+    if (captureCommand && $('captureCommandDialog').open) refreshCaptureCommand(false);
   }
   function isBusy(state) { return state.status === 'starting' || state.status === 'stopping'; }
   function isActive(state) { return state.status === 'running' || isBusy(state); }
@@ -574,7 +705,7 @@
     input.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); if (!event.repeat && !event.isComposing && event.keyCode !== 229) commit(input.value); } });
     input.addEventListener('paste', function (event) { if (event.clipboardData && /[\r\n]/.test(event.clipboardData.getData('text/plain'))) { event.preventDefault(); showToast('替換文字必須是單行。', true); } });
     menu.append(title, input, apply);
-    capturedValues.slice(0, 20).forEach(function (item) {
+    currentCaptures().slice(0, 20).forEach(function (item) {
       var button = document.createElement('button'); button.type = 'button'; button.className = 'live-replace-suggestion'; button.textContent = item.address;
       button.title = item.source || ''; button.addEventListener('click', function () { commit(item.address); }); menu.appendChild(button);
     });
@@ -598,7 +729,7 @@
     editor.append(input, paste, interrupt); state.layer.appendChild(editor);
     state.lineInput = input; state.lineEditorElement = editor; state.lineHistory = []; state.lineHistoryIndex = 0; state.lineDraft = '';
     state.lineEditor = window.TerminalGridTextEdit.attach(input, {
-      getValues: function () { return capturedValues; }, onStatus: showToast, attachReplacementCompletion: attachReplacementCompletion
+      getValues: currentCaptures, onStatus: showToast, attachReplacementCompletion: attachReplacementCompletion
     });
     state.lineCompletion = attachCommandCompletion(input, state.lineEditor, state);
     input.addEventListener('focus', function () { focusedEditor = { state: state }; });
@@ -1278,6 +1409,7 @@
       if (!evidence || evidence.id !== message.requestId) return;
       if (message.error) { evidence = null; showToast(message.error, true); return; }
       $('evidenceStatus').textContent = evidence.status;
+      $('evidenceLogLines').value = evidence.lines.join('\n') || '尚無可判讀的輸出。';
       $('saveEvidenceButton').disabled = false;
       $('evidenceDialog').showModal();
       return;
@@ -1376,7 +1508,9 @@
       pathPickPending = null;
       if (request.target !== pathCommandTarget || !$('pathCommandDialog').open) return;
       if (message.error) showToast(message.error, true);
-      else if (!message.cancelled && typeof message.path === 'string') request.input.value = message.path;
+      else if (!message.cancelled && typeof message.path === 'string') {
+        request.input.value = message.path; request.input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       return;
     }
     if (message.type === 'folderPicked' || message.type === 'folderPickError') { handleFolderResult(message); return; }
@@ -1794,7 +1928,15 @@
       var edit = document.createElement('button'); edit.type = 'button'; edit.className = 'icon-button'; edit.textContent = '⋯'; edit.title = '編輯／刪除';
       edit.hidden = !!pack.builtin;
       edit.addEventListener('click', function () { openCommandEditor(pack, command); });
-      item.append(details, insert, edit);
+      var pin = document.createElement('button'); pin.type = 'button'; pin.className = 'icon-button command-pin';
+      pin.hidden = !!pack.builtin; pin.textContent = command.pinned ? '★' : '☆';
+      pin.title = command.pinned ? '取消釘選' : '釘選至終端選單頂端';
+      pin.setAttribute('aria-label', pin.title + ' · ' + command.name);
+      pin.setAttribute('aria-pressed', String(!!command.pinned));
+      pin.addEventListener('click', function () {
+        command.pinned = !command.pinned; renderCommandLibrary(pack.id); queueSave();
+      });
+      item.append(details, insert, pin, edit);
       item.addEventListener('dragstart', function (event) { event.dataTransfer.setData(command.literal ? literalDragType : commandDragType, command.command); event.dataTransfer.setData('text/plain', command.command); event.dataTransfer.effectAllowed = 'copy'; });
       list.appendChild(item);
     });
@@ -1833,7 +1975,7 @@
     var source = selectedCommandPack(); if (!source) return;
     if (appConfig.commandPacks.length >= 32) { showToast('最多可建立 32 個指令包。', true); return; }
     var pack = { id: uid('pack'), name: (source.name + ' 副本').slice(0, 64), commands: source.commands.map(function (command) {
-      return { id: uid('cmd'), name: command.name, description: command.description, command: command.command, literal: !!command.literal };
+      return { id: uid('cmd'), name: command.name, description: command.description, command: command.command, literal: !!command.literal, pinned: !!command.pinned };
     }) };
     appConfig.commandPacks.push(pack); renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); queueSave(); showToast('指令包已複製。');
   }
@@ -1912,7 +2054,7 @@
       var pack = { id: uid('pack'), name: str(data.name, 64).trim() || (fileName || '匯入指令包').replace(/\.tgridcmd$/i, ''),
         commands: data.commands.map(function (c) {
           if (!c || typeof c.command !== 'string') throw new Error('指令項目格式不正確。');
-          return { id: uid('cmd'), name: str(c.name, 80).trim() || '常用指令', description: str(c.description, 240), command: str(c.command, 16000), literal: c.literal === true };
+          return { id: uid('cmd'), name: str(c.name, 80).trim() || '常用指令', description: str(c.description, 240), command: str(c.command, 16000), literal: c.literal === true, pinned: c.pinned === true };
         }) };
       appConfig.commandPacks.push(pack); renderCommandLibrary(pack.id); queueSave();
       showToast('指令包已匯入；指令只會在選取終端並按插入時填入文字。');
@@ -2125,11 +2267,22 @@
   ['keydown', 'paste', 'click', 'contextmenu', 'drop'].forEach(function (name) { document.addEventListener(name, function (event) { if (transferPending) { event.preventDefault(); event.stopImmediatePropagation(); } }, true); });
   function showTerminalMenu(x, y, state) {
     var menu = $('terminalContextMenu'); menu.textContent = ''; menu.className = 'terminal-context-menu';
-    function add(label, action) { var button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', function (event) { event.stopPropagation(); menu.hidden = true; action(); }); menu.appendChild(button); }
+    function add(label, action) { var button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.addEventListener('click', function (event) { event.stopPropagation(); menu.hidden = true; action(); }); menu.appendChild(button); return button; }
+    var packs = appConfig.commandPacks.slice().sort(function (a, b) { return Number(b.id === personalPackId) - Number(a.id === personalPackId); });
+    var snippets = packs.flatMap(function (pack) { return pack.commands; });
+    snippets.filter(function (command) { return command.pinned; }).slice(0, 15).forEach(function (command) {
+      add('★ 插入：' + command.name, function () { insertSnippet(state, command); });
+    });
+    var selectedText = state.terminal.getSelection();
     add('複製選取文字', function () { copySelection(state); });
     add('原位替換選取文字…', function () { showLiveReplaceMenu(state, x, y); });
     add('貼上剪貼簿', function () { pasteClipboard(state); });
     add('暫存選取文字', function () { saveCaptureText(state.terminal.getSelection(), state); });
+    var saveSelection = add('存到我的常用…', function () {
+      if (!selectedText.trim() || !validLineText(selectedText)) { showToast('請框選單行文字，最多 16,000 字元。', true); return; }
+      addCommand(selectedText);
+    });
+    saveSelection.disabled = !selectedText.trim();
     add('編輯選取指令', function () { openCommandDraft(state); });
     add('帶到本格輸入列編輯', function () { editTerminalSelection(state); });
     add('開啟資料暫存區…', function () { setCapturePanel(true); });
@@ -2143,14 +2296,8 @@
     var separator = document.createElement('div'); separator.className = 'context-separator'; menu.appendChild(separator);
     add('開啟指令庫…', function () { renderCommandLibrary(); $('commandDialog').showModal(); });
     window.TerminalGridDefaults.packs.forEach(function (pack) { add(pack.name + '…', function () { renderCommandLibrary(); $('commandPackSelect').value = pack.id; renderCommandLibrary(); $('commandDialog').showModal(); }); });
-    var menuItems = 0;
-    var packs = appConfig.commandPacks.slice().sort(function (a, b) { return Number(b.id === personalPackId) - Number(a.id === personalPackId); });
-    packs.forEach(function (pack) {
-      pack.commands.forEach(function (command) {
-        if (menuItems >= 15) return;
-        menuItems++;
-        add('插入：' + command.name, function () { insertSnippet(state, command); });
-      });
+    snippets.filter(function (command) { return !command.pinned; }).slice(0, 15).forEach(function (command) {
+      add('插入：' + command.name, function () { insertSnippet(state, command); });
     });
     positionContextMenu(menu, x, y);
     menu.querySelector('button').focus();
@@ -2224,7 +2371,7 @@
     var text = terminalLog(state), result = window.TerminalGridFlowOutput.iperfResult((state.iperfOutput || state.transcript).text());
     if (state.status === 'exited' && state.exitCode !== null)
       result.status += ' · 終端退出碼 ' + state.exitCode;
-    evidence = { id: uid('evidence'), text: text, status: result.status };
+    evidence = { id: uid('evidence'), text: text, status: result.status, lines: result.lines };
     $('evidenceRate').value = result.rate;
     $('evidenceResult').value = '待確認';
     $('saveEvidenceButton').disabled = true;
@@ -2269,6 +2416,7 @@
       if (this.disabled || !remoteBrowser || remoteBrowser.target !== pathCommandTarget) return;
       var entry = selectedRemoteEntry();
       remoteBrowser.input.value = entry ? remoteEntryPath(entry) : remoteBrowser.path;
+      remoteBrowser.input.dispatchEvent(new Event('input', { bubbles: true }));
       $('androidBrowseDialog').close();
     });
     try { adbToolsFolder = localStorage.getItem('terminalGrid.adbToolsFolder') || ''; } catch (_) { }
@@ -2393,6 +2541,7 @@
       scheduleFit();
     });
     $('refreshCommandTargets').addEventListener('click', discoverTargets);
+    $('pathCommandFields').addEventListener('input', updatePullPreview);
     var pickPullAdb = document.createElement('button');
     pickPullAdb.type = 'button'; pickPullAdb.className = 'button'; pickPullAdb.textContent = '選 ADB 資料夾…';
     pickPullAdb.addEventListener('click', function () { pickAdbTools($('pathCommandDialog'), discoverTargets); });
@@ -2411,6 +2560,7 @@
       try {
         var shell = target.state.status === 'running' ? target.state.sessionShell : getTabConfig(getWorkspace(target.state.workspaceId), target.state.slot, target.state.tabId).shell;
         var text = window.TerminalGridDefaults.resolve(target.text, values, shell, target.adbPath);
+        var pullCategory = target.pullRemoteKey && pullLogCategory(values[target.pullRemoteKey] || '');
         if (target.shared && $('shareFlowParams').checked) Object.assign(target.shared, values);
         pathCommandTarget = null; pathPickPending = null; targetDiscoveryRequest = null;
         $('pathCommandDialog').close();
@@ -2418,8 +2568,11 @@
         if (target.finish) target.finish(text);
         else if (target.replace) {
           if (!target.selection) showToast('請重新框選可編輯的指令內容。', true);
-          else replaceLiveSelection(target.state, text, target.selection);
-        } else insertCommand(target.state, text, false, true);
+          else if (replaceLiveSelection(target.state, text, target.selection)) pullDestination(pullCategory, values.LOCAL_FOLDER);
+        } else {
+          insertCommand(target.state, text, false, true);
+          pullDestination(pullCategory, values.LOCAL_FOLDER);
+        }
       } catch (error) { $('targetDiscoveryStatus').textContent = error.message; }
     });
     try { if (localStorage.getItem('terminalGrid.rightClickMode') === 'menu') rightClickMode = 'menu'; } catch (_) { }
@@ -2435,7 +2588,7 @@
       showToast('缺少本機終端元件。請完整解壓縮套件，再啟動 TerminalGridIntegrated.exe。', true); return;
     }
     var initial = normalizeAppConfig(null); initial.workspaces.forEach(createView); activateWorkspace(initial.activeWorkspaceId);
-    commandDraft = window.TerminalGridDraft.create({ container: $('commandDraftHost'), getValues: function () { return capturedValues; }, onStatus: showToast, onResize: scheduleFit,
+    commandDraft = window.TerminalGridDraft.create({ container: $('commandDraftHost'), getValues: currentCaptures, onStatus: showToast, onResize: scheduleFit,
       attachCompletion: attachCommandCompletion, attachReplacementCompletion: attachReplacementCompletion,
       onSend: function (text) {
         var state = draftTarget && draftTarget.state;
@@ -2451,6 +2604,11 @@
     $('captureButton').addEventListener('click', function () { setCapturePanel($('capturePanel').hidden); });
     $('closeCaptureButton').addEventListener('click', function () { setCapturePanel(false); });
     $('clearCapturesButton').addEventListener('click', function () { capturedValues = []; renderCaptures(); });
+    $('captureCommandTarget').addEventListener('change', function () { refreshCaptureCommand(true); });
+    $('captureCommandScope').addEventListener('change', function () { refreshCaptureCommand(false); });
+    $('captureCommandRefresh').addEventListener('click', function () { refreshCaptureCommand(true); });
+    $('captureCommandApply').addEventListener('click', applyCaptureCommand);
+    $('captureCommandDialog').addEventListener('close', function () { captureCommand = null; });
     $('captureEnabled').addEventListener('change', function () {
       views.forEach(function (view) { view.panes.forEach(function (cell) { cell.tabs.forEach(resetCaptureScanner); }); });
       showToast(this.checked ? '已啟用 IPv6／Aware 介面自動擷取。' : '已暫停自動擷取，現有紀錄會保留。');

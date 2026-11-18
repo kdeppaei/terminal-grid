@@ -349,6 +349,7 @@ async function main() {
     await page.locator('#androidBrowseUse').click();
     assert.equal(await phonePath.inputValue(), '/data/debuglogger/Run 3/測試 1.log');
     await page.getByRole('textbox', { name: '本機目的路徑' }).fill('C:\\My Logs');
+    assert.match(await page.locator('#pullCommandPreview').innerText(), /USB2[\s\S]*\/data\/debuglogger\/Run 3\/測試 1.log[\s\S]*C:\\My Logs/);
     await page.locator('#pathCommandForm button[type="submit"]').click();
     assert.deepEqual((await inputs()).map(m => m.data), ['"C:\\Tools Folder\\adb.exe" -s "USB2" pull "/data/debuglogger/Run 3/測試 1.log" "C:\\My Logs"']);
     assert.equal(await page.locator('#commandDialog').isVisible(), false);
@@ -385,9 +386,59 @@ async function main() {
     await emit({ type: 'androidActionResult', requestId: sysdump.requestId });
     assert.match(await page.locator('#androidAppsStatus').innerText(), /手動鍵入 \*#9900#/);
     pass('App filtering, component launch and SysDump dialer action stay on the selected device');
+    await page.locator('#androidAppsDialog [data-close]').first().click();
+    async function openLogPull(name) {
+      await page.locator('#appOptions summary').click();
+      await page.locator('#adbLogsButton').click();
+      await page.locator('#commandList .command-item').filter({ hasText: name }).getByRole('button', { name: '插入', exact: true }).click();
+    }
+    async function cancelLogPull() {
+      await page.locator('#pathCommandDialog [data-close]').first().click();
+      await page.locator('#commandDialog [data-close]').first().click();
+    }
+    const localPath = page.getByRole('textbox', { name: '本機目的路徑' });
+    await openLogPull('Pull /data/debuglogger/');
+    assert.equal(await localPath.inputValue(), 'C:\\My Logs');
+    await localPath.fill('C:\\Cancelled');
+    await cancelLogPull();
+    await openLogPull('Pull /sdcard/log');
+    assert.equal(await localPath.inputValue(), '');
+    await page.locator('[data-path-key="SERIAL"]').fill('USB1');
+    await localPath.fill('D:\\Samsung Logs');
+    await page.locator('#pathCommandForm button[type="submit"]').click();
+    await openLogPull('Pull /data/debuglogger/');
+    assert.equal(await localPath.inputValue(), 'C:\\My Logs');
+    await phonePath.fill('/sdcard/log/session');
+    assert.equal(await localPath.inputValue(), 'D:\\Samsung Logs');
+    await localPath.fill('E:\\Manual');
+    await phonePath.fill('/data/debuglogger');
+    assert.equal(await localPath.inputValue(), 'E:\\Manual');
+    await phonePath.fill('/sdcard/another');
+    await page.locator('[data-path-key="SERIAL"]').fill('USB1');
+    await page.locator('#pathCommandForm button[type="submit"]').click();
+    assert.equal(await page.evaluate(() => localStorage.getItem('terminalGrid.pullDestination.data/debuglogger')), 'C:\\My Logs');
+    assert.equal(await page.evaluate(() => localStorage.getItem('terminalGrid.pullDestination.sdcard/log')), 'D:\\Samsung Logs');
+    await page.reload();
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'ready'));
+    await emit({ type: 'init', config });
+    await emit({ type: 'started', workspaceId: 'conditions', slot: 0, tabId: 'check', generation: 1, pid: 1400 });
+    await page.locator('.terminal-grid:visible .terminal-mount:visible').first().click();
+    await openLogPull('Pull /data/debuglogger/');
+    assert.equal(await localPath.inputValue(), 'C:\\My Logs');
+    await cancelLogPull();
+    await openLogPull('Pull /sdcard/log');
+    assert.equal(await localPath.inputValue(), 'D:\\Samsung Logs');
+    await page.locator('[data-path-key="SERIAL"]').fill('USB2');
+    await localPath.fill('C:\\Restarted');
+    await emit({ type: 'started', workspaceId: 'conditions', slot: 0, tabId: 'check', generation: 2, pid: 1401 });
+    await reset(); await page.locator('#pathCommandForm button[type="submit"]').click();
+    assert.deepEqual(await inputs(), []);
+    assert.equal(await page.evaluate(() => localStorage.getItem('terminalGrid.pullDestination.sdcard/log')), 'D:\\Samsung Logs');
+    await cancelLogPull();
+    pass('Pull destinations persist separately across reload, respect source changes, and reject cancelled or stale updates');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
-  } catch (error) { if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }
+  } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }
   finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)); }
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

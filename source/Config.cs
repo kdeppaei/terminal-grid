@@ -129,6 +129,7 @@ namespace TerminalGridIntegrated
         public string description { get; set; }
         public string command { get; set; }
         public bool literal { get; set; }
+        public bool pinned { get; set; }
         public CommandSnippetConfig() { id = ""; name = ""; description = ""; command = ""; }
     }
     public sealed class CommandPackConfig

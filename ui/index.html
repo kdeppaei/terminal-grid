@@ -58,6 +58,18 @@
 
   <dialog id="packDialog" class="modal compact-modal" aria-labelledby="packDialogTitle"><form id="packForm"><div class="modal-heading"><div><span class="eyebrow">COMMAND PACK</span><h2 id="packDialogTitle">新增指令包</h2></div><button type="button" class="icon-button modal-close" data-close="packDialog" aria-label="關閉指令包設定">×</button></div><div class="modal-content"><label class="field">指令包名稱<input id="packNameInput" maxlength="64" required placeholder="例如：網路測試"></label></div><div class="modal-actions"><button type="button" class="button quiet" data-close="packDialog">取消</button><span class="toolbar-spacer"></span><button type="submit" class="button primary">儲存</button></div></form></dialog>
 
+  <dialog id="captureCommandDialog" class="modal compact-modal" aria-labelledby="captureCommandTitle">
+    <div class="modal-heading"><h2 id="captureCommandTitle">在 DUT2 產生指令</h2><button class="icon-button" data-close="captureCommandDialog" aria-label="關閉 DUT2 指令">×</button></div>
+    <div class="modal-content">
+      <p id="captureCommandSource" class="help-note"></p>
+      <label class="field">DUT2 終端<select id="captureCommandTarget"></select></label>
+      <label class="field">DUT2 scope<select id="captureCommandScope"></select></label>
+      <button id="captureCommandRefresh" class="button">重新讀取介面</button>
+      <label class="field">指令預覽<input id="captureCommandPreview" readonly></label>
+      <p id="captureCommandStatus" class="help-note" role="status"></p>
+    </div>
+    <div class="modal-actions"><button class="button" data-close="captureCommandDialog">取消</button><button id="captureCommandApply" class="button primary">填入 DUT2 輸入列</button></div>
+  </dialog>
   <dialog id="commandEditDialog" class="modal compact-modal" aria-labelledby="commandEditTitle">
     <form id="commandEditForm">
       <div class="modal-heading">
@@ -145,6 +157,8 @@
           <label class="field">吞吐量<input id="evidenceRate" maxlength="100" placeholder="例如 941 Mbits/sec"></label>
         </div>
         <p id="evidenceStatus" role="status"></p>
+        <label class="field">判讀依據 · Log 摘錄<textarea id="evidenceLogLines" rows="5" readonly spellcheck="false" aria-label="iperf 判讀依據"></textarea></label>
+        <p class="help-note">請依 TC 要求選擇 PASS／FAIL。輸出不足時可核對同名 Log，或開始完整錄製後重新測試。</p>
       </div>
       <div class="modal-actions"><button type="submit" id="saveEvidenceButton" class="button primary" disabled>儲存 PNG ＋ .log</button></div>
     </form>

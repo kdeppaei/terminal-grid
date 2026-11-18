@@ -1,4 +1,12 @@
-# Terminal Grid 3.15.0
+# Terminal Grid 3.16.0
+
+- 在資料暫存對最新 IPv6 按右鍵，選擇 DUT2 終端及其 Aware scope，產生 ping6 或預填 -f m -n 1300M 的 iperf3 指令至輸入列。
+- 最近查詢依終端分組，舊位址和介面收進歷史區。補全和指令產生器使用最近結果，拒絕已更新的來源及重啟的目標。
+- 框選終端文字即可收藏，個人指令支援釘選至終端選單頂端，設定與匯入匯出保存釘選狀態。
+- /data/debuglogger 與 /sdcard/log 分別記住本機下載位置，套用前顯示裝置、來源和目的地。
+- F8 顯示 iperf 完成／中斷／輸出不足及支持判定的 Log 節錄，有效摘要可帶入吞吐量，PASS／FAIL 維持手動判定。
+
+## Terminal Grid 3.15.0
 
 - Default 指令包可直接新增指令或原樣插入的文字片段。個人項目儲存在「我的常用」，支援匯出及匯入 .tgridcmd。
 - Android／Linux 的 ifconfig 和 ip addr 輸出會自動擷取 Wi-Fi Aware scope，顯示來源終端，支援複製、拖曳及右鍵儲存。

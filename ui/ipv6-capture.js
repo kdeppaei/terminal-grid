@@ -79,21 +79,25 @@
     return result;
   }
 
-  function createScanner(onEntry, onScope) {
+  function createScanner(onEntry, onScope, onRefresh) {
     if (typeof onEntry !== 'function') throw new TypeError('An IPv6 entry callback is required.');
     var line = '', overflow = false, state = 'text', interfaceName = '';
 
     function finishLine() {
       if (!overflow) {
+        var query = /[>$#]\s*(?:adb(?:\s+-s\s+(?:"[^"]+"|'[^']+'|[^\s]+))?\s+shell\s+)?(?:ifconfig(?:\s|$)|ipconfig(?:\s|$)|ip\s+(?:-6\s+)?(?:addr|address)(?:\s|$))/i.test(line);
+        if (query) {
+          interfaceName = '';
+          if (onRefresh) onRefresh(null);
+        }
         var nextInterface = interfaceFromLine(line);
         if (nextInterface !== null) {
           interfaceName = nextInterface.name;
+          if (onRefresh) onRefresh(interfaceName);
           if (onScope && nextInterface.unix && /^aware[_-]data\d{1,22}$/.test(interfaceName)) {
             onScope({ address: '%' + interfaceName, interfaceName: interfaceName, kind: 'scope' });
           }
         }
-        // A fresh command/prompt must not inherit an earlier command's interface.
-        if (/[>$#]\s*(?:(?:adb\b.*?\bshell\s+)?(?:ifconfig|ipconfig)\b|ip\s+-6\s+(?:addr|address)\b)/i.test(line)) interfaceName = '';
         extractLine(line, interfaceName).forEach(onEntry);
       }
       line = ''; overflow = false;

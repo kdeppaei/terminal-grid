@@ -140,4 +140,15 @@ test('IPv6 completion ranks sender scopes and replaces only the zone', function 
   context.value = 'ping6 fe80::1234%'; context.start = context.end = context.value.length;
   assert.equal(completion.suggestions(context, sources, false)[0].value, '%aware_data1');
 });
+test('fresh Android and ADB network queries invalidate old results before interface discovery', function () {
+  var refreshed = [], entries = [];
+  var scanner = ipv6.createScanner(function (entry) { entries.push(entry); }, null, function (name) { refreshed.push(name); });
+  scanner.feed('DUT:/ $ ifconfig\naware_data0: flags=1\ninet6 fe80::1\n');
+  scanner.feed('DUT:/ $ ip addr\n2: aware_data1: <UP>\ninet6 fe80::2\n');
+  scanner.feed('C:\\>adb -s "DEVICE" shell ip -6 address\ninet6 fe80::3\n');
+  assert.deepEqual(refreshed, [null, 'aware_data0', null, 'aware_data1', null]);
+  assert.equal(entries[2].interfaceName, '');
+  scanner.feed('C:\\>echo ip addr\n');
+  assert.equal(refreshed.length, 5);
+});
 console.log('IPv6 capture: ' + passed + ' tests passed.');

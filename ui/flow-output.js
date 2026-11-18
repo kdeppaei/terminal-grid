@@ -44,36 +44,54 @@
     };
   }
   function iperfResult(text) {
-    var lines = text.split(/\r?\n/), result = '', completed = '', error = '', awaitingReport = false, iperf2Total = '', aggregate = false;
-    for (var line of lines) {
-      if (/(?:^|[>#$]|shell:)\s*(?:.*?\s)?(?:"[^"]*[\\/]|[^\s]*[\\/])?iperf3?(?:\.exe)?"?(?=\s).*\s(?:-c\s|--client(?:\s|=))/i.test(line)
-          || /^\s*(?:Connecting to host|Client connecting to)\b/i.test(line)) {
-        result = ''; completed = ''; error = ''; awaitingReport = false; iperf2Total = ''; aggregate = false;
+    var result = '', completed = '', error = '', awaitingReport = false, iperf2 = false;
+    var aggregate = false, streams = new Set(), evidence = [], recent = [], totals = new Map();
+    function remember(line) { evidence.push(line.trim().slice(0, 1000)); evidence = evidence.slice(-8); }
+    for (var rawLine of text.split(/\r?\n/)) {
+      var line = rawLine.trim();
+      var command = /(?:^|[>#$]|shell:)\s*(?:.*?\s)?(?:"[^"]*[\\/]|[^\s]*[\\/])?(iperf3?)(?:\.exe)?"?(?=\s).*\s(?:-c\s|--client(?:\s|=))/i.exec(line);
+      if (command || /^(?:Connecting to host|Client connecting to|Accepted connection from)\b/i.test(line)) {
+        result = ''; completed = ''; error = ''; awaitingReport = false; aggregate = false;
+        streams.clear(); totals.clear(); evidence = []; recent = [];
+        iperf2 = command ? command[1].toLowerCase() === 'iperf' : /^Client connecting to\b/i.test(line);
       }
-      if (/iperf3?: error|connection refused|network is unreachable|broken pipe|interrupt(?:ed|ion)|connection reset by peer|unable to connect|^\s*\^C\s*$/i.test(line)) {
-        result = ''; completed = ''; awaitingReport = false; error = line.trim().slice(0, 240); continue;
+      if (line) { recent.push(line.slice(0, 1000)); recent = recent.slice(-4); }
+      if (/iperf3?: error|connection refused|network is unreachable|broken pipe|interrupt(?:ed|ion)|connection reset by peer|unable to connect|^\^C$|(?:command )?not found|not recognized as an internal/i.test(line)) {
+        result = ''; completed = ''; awaitingReport = false; error = line.slice(0, 200);
+        evidence = []; remember(line); continue;
       }
-      var rate = /([\d.,]+\s+[KMGT]?bits\/sec)\b/i.exec(line);
-      if (rate && /\breceiver\s*$/i.test(line) && !error) {
-        var sum = /^\s*\[SUM\]/i.test(line);
-        if (sum || !aggregate) result = rate[1];
+      if (error) continue;
+      // Require an actual iperf report row and a nonzero measured interval.
+      var row = /^\[\s*(SUM|\d+)\]\s+(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s+sec\b.*?\b(\d+(?:\.\d+)?\s+[KMGT]?bits\/sec)\b/i.exec(line);
+      var summary = row && Number(row[2]) === 0 && Number(row[3]) > 0;
+      if (summary && (/\breceiver\s*$/i.test(line) || awaitingReport)) {
+        var sum = row[1].toUpperCase() === 'SUM';
+        if (sum || !aggregate) result = row[4];
+        if (!sum) streams.add(row[1]);
         aggregate = aggregate || sum;
-        completed = '找到 iperf3 receiver 摘要';
-      } else if (/^\s*iperf Done\.\s*$/i.test(line) && !error) {
-        completed = completed ? completed + '及完成訊息' : '找到 iperf Done. 完成訊息';
-      } else if (/Server Report:/i.test(line) && !error) {
-        awaitingReport = true;
+        completed = awaitingReport ? 'iperf 伺服器回報' : 'iperf3 receiver 摘要';
+        remember(line);
+        // iperf 2 can report multiple streams after Server Report.
+      } else if (/^iperf Done\.$/i.test(line)) {
+        completed = completed || 'iperf Done. 完成訊息'; remember(line);
+      } else if (/^Server Report:$/i.test(line)) {
+        awaitingReport = true; iperf2 = true; remember(line);
       }
-      if (awaitingReport && rate) {
-        completed = '找到 iperf 伺服器回報'; result = rate[1]; awaitingReport = false;
-      }
-      if (rate && /\b0\.0-\s*\d+\.\d+\s+sec\b/.test(line)) iperf2Total = rate[1];
-      if (!completed && !error && iperf2Total && /^(?:PS )?(?:[A-Za-z]:\\|\\\\)[^>]*>\s*$|^[\w.-]+:\/.* [#$]\s*$/.test(line)) {
-        completed = '已返回提示字元，找到 iperf 累計速率，請核對 Log';
-        result = iperf2Total;
+      if (iperf2 && summary) totals.set(row[1].toUpperCase(), { rate: row[4], line: line });
+      if (!completed && iperf2 && totals.size && /^(?:PS )?(?:[A-Za-z]:\\|\\\\)[^>]*>\s*$|^[\w.-]+:\/.* [#$]\s*$/.test(line)) {
+        var total = totals.get('SUM') || (totals.size === 1 ? totals.values().next().value : null);
+        completed = 'iperf 累計速率及返回提示字元';
+        if (total) { result = total.rate; remember(total.line); }
+        else totals.forEach(function (item) { remember(item.line); });
+        remember(line);
       }
     }
-    return { rate: result, status: error ? '輸出有錯誤：' + error : (completed || '目前輸出未找到 iperf 完成摘要') };
+    var incompleteAggregate = streams.size > 1 && !aggregate;
+    if (incompleteAggregate) result = '';
+    var state = error ? 'interrupted' : completed ? 'completed' : 'insufficient';
+    var status = error ? '找到中斷／錯誤訊息 · 輸出有錯誤 · ' + error : completed ? '找到完成摘要 · ' + completed : '輸出不足 · 未找到 iperf 完成摘要';
+    if (incompleteAggregate) status += ' · 多條串流缺少 SUM，吞吐量請核對 Log';
+    return { rate: result, state: state, status: status, lines: evidence.length ? evidence : recent };
   }
   root.TerminalGridFlowOutput = { create: create, iperfResult: iperfResult };
 }(typeof window === 'undefined' ? globalThis : window));
