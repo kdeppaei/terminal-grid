@@ -1,4 +1,10 @@
-# Terminal Grid 3.16.0
+# Terminal Grid 3.17.0
+
+- NAN／NDP 新流程收到本輪 IPv6 Ping 回覆後，可選 iperf3、iperf 2 或 Quick Share。預設傳輸 1.3 GB（1,300,000,000 bytes）。
+- iperf 會等待 DUT1 Server 監聽，再由 DUT2 執行流量測試。Quick Share 提供手機傳檔及收件確認步驟。
+- 出廠包附帶可選的 Python 雙機驗證器。精靈支援指定 Python，可進一步檢查 Wi-Fi Aware 介面和兩個測試封包。
+
+## Terminal Grid 3.16.0
 
 - 在資料暫存對最新 IPv6 按右鍵，選擇 DUT2 終端及其 Aware scope，產生 ping6 或預填 -f m -n 1300M 的 iperf3 指令至輸入列。
 - 最近查詢依終端分組，舊位址和介面收進歷史區。補全和指令產生器使用最近結果，拒絕已更新的來源及重啟的目標。

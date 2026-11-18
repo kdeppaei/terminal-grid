@@ -33,6 +33,12 @@
     return {
       feed: feed,
       text: function () { return (truncated ? '[較早輸出已超過終端快取上限]\r\n' : '') + (lines.length ? lines.join('\r\n') + '\r\n' : '') + pending; },
+      hasPingReply: function () {
+        return lines.some(function (line) { return /^\s*[1-9]\d* bytes from\s+\S+.*\b(?:icmp_)?seq[= ]\d+/i.test(line); });
+      },
+      hasLine: function (text) {
+        return lines.some(function (line) { return line.trim() === text; });
+      },
       match: function (literal, sent) {
         if (!literal) return false;
         return lines.some(function (line) {

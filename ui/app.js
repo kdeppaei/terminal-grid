@@ -17,6 +17,7 @@
   var transferPending = null, paneClipboard = null, paneDrag = null;
   var paneDragType = 'application/x-terminalgrid-pane';
   var activeRun = null, lastRun = null, failedFlowStep = null;
+  var nanTransferResolve = null;
   var evidence = null, logState = null;
   var paneHistory = [], selectedPanes = new Map();
   var completionMenu, completionHistory = [], completionCatalog, completionCommands = [], completionLiterals = [];
@@ -359,7 +360,7 @@
         workspaceId: str(f.workspaceId, 64) || activeId,
         steps: (Array.isArray(f.steps) ? f.steps : []).slice(0, 100).map(function (step) {
           step = step || {};
-          return { action: ['start', 'send', 'wait', 'pause', 'stop', 'output', 'exit'].indexOf(step.action) >= 0 ? step.action : 'send',
+          return { action: ['start', 'send', 'wait', 'pause', 'stop', 'output', 'exit', 'nanTransfer'].indexOf(step.action) >= 0 ? step.action : 'send',
             slot: limitNumber(step.slot, 0, 0, 15), tabId: str(step.tabId, 64), text: str(step.text, 16000),
             delayMs: limitNumber(step.delayMs, 500, 100, 30000), enter: step.enter !== false,
             timeoutMs: limitNumber(step.timeoutMs || 10000, 10000, 100, 600000), retries: limitNumber(step.retries, 0, 0, 5), failureText: str(step.failureText, 512) };
@@ -1561,6 +1562,7 @@
       if (typeof message.generation === 'number') state.generation = message.generation;
       if (activeRun && activeRun.output.has(state)) {
         var observation = activeRun.output.get(state);
+        if (!observation.started) observation.firstStartedGeneration = state.generation;
         observation.generation = state.generation;
         observation.buffer = window.TerminalGridFlowOutput.create();
         observation.started = true;
@@ -1652,6 +1654,7 @@
       var row = document.createElement('div'); row.className = 'flow-step';
       var action = document.createElement('select');
       [['start', '啟動終端'], ['send', '輸入指令'], ['wait', '等待時間'], ['pause', '等待操作後繼續'], ['output', '等待輸出'], ['exit', '確認正常結束'], ['stop', '結束終端']].forEach(function (item) { var o = new Option(item[1], item[0]); action.add(o); });
+      if (step.action === 'nanTransfer') action.add(new Option('Ping 成功後選擇傳輸', 'nanTransfer'));
       action.value = step.action;
       var slot = document.createElement('select'); slot.className = 'flow-slot flow-target';
       for (var i = 0; i < MAX_SLOTS; i++) slot.add(new Option(String(i + 1).padStart(2, '0') + ' 格', String(i)));
@@ -1696,6 +1699,7 @@
       moveDown.addEventListener('click', function () { var item = flow.steps.splice(index, 1)[0]; flow.steps.splice(index + 1, 0, item); renderFlowEditor(); queueSave(); });
       remove.addEventListener('click', function () { flow.steps.splice(index, 1); renderFlowEditor(); queueSave(); });
       textInput.hidden = ['start', 'stop', 'exit'].includes(step.action); enterLabel.hidden = step.action !== 'send'; slot.hidden = tab.hidden = step.action === 'wait' || step.action === 'pause';
+      if (step.action === 'nanTransfer') { textInput.readOnly = true; textInput.title = '傳輸量由 NAN／NDP 精靈設定，單位為 bytes。'; }
     });
   }
   function fillFlowTabs(select, workspace, slot, selectedId) {
@@ -1729,7 +1733,7 @@
       var steps = data.steps.map(function (s) {
         var slot = limitNumber(s.slot, 0, 0, 15), cell = workspace.slots[slot];
         var tabId = cell.tabs.some(function (t) { return t.id === s.tabId; }) ? s.tabId : cell.activeTabId;
-        return { action: ['start', 'send', 'wait', 'pause', 'stop', 'output', 'exit'].indexOf(s.action) >= 0 ? s.action : 'send',
+        return { action: ['start', 'send', 'wait', 'pause', 'stop', 'output', 'exit', 'nanTransfer'].indexOf(s.action) >= 0 ? s.action : 'send',
           slot: slot, tabId: tabId, text: str(s.text, 16000), delayMs: limitNumber(s.delayMs, 500, 100, 30000), enter: s.enter !== false,
           timeoutMs: limitNumber(s.timeoutMs || 10000, 10000, 100, 600000), retries: limitNumber(s.retries, 0, 0, 5), failureText: str(s.failureText, 512) };
       });
@@ -1753,6 +1757,122 @@
     var resolve = flowPauseResolve; flowPauseResolve = null;
     if ($('flowPauseDialog').open) $('flowPauseDialog').close();
     if (resolve) resolve(continueFlow);
+  }
+  function finishNanTransfer(choice) {
+    var resolve = nanTransferResolve; nanTransferResolve = null;
+    if ($('nanTransferDialog').open) $('nanTransferDialog').close();
+    if (resolve) resolve(choice);
+  }
+  function nanTransferPlan(workspace, step) {
+    var pingTab = getTabConfig(workspace, step.slot, step.tabId);
+    function isNanTab(tab, mode) {
+      return tab && tab.shell === 'Custom' && /^TerminalGridNan\.exe$/i.test(tab.exe) &&
+        tab.args.startsWith('--mode ' + mode + ' ') && !tab.command && !tab.batchFile;
+    }
+    if (!isNanTab(pingTab, 'ping') || !/^[1-9]\d{0,11}$/.test(step.text)) throw Error('請由 NAN／NDP 精靈建立傳輸選擇步驟。');
+    function find(id, mode, tool) {
+      var matching = [];
+      workspace.slots.forEach(function (cell, slot) {
+        cell.tabs.forEach(function (tab) { if (tab.id === id) matching.push({ slot: slot, tab: tab }); });
+      });
+      var target = matching[0];
+      if (matching.length !== 1 || !isNanTab(target.tab, mode) ||
+          !target.tab.args.includes('--amount "' + step.text + '" ') || !target.tab.args.includes('--tool "' + tool + '" '))
+        throw Error('找不到符合設定的 ' + tool + ' 分頁，請重新建立 NAN／NDP 流程。');
+      return target;
+    }
+    return {
+      iperf3: [find('nan-server', 'server', 'iperf3'), find('nan-traffic', 'traffic', 'iperf3')],
+      iperf: [find('nan-server-iperf2', 'server', 'iperf'), find('nan-traffic-iperf2', 'traffic', 'iperf')]
+    };
+  }
+  function formatNanAmount(bytes) {
+    return (Number(bytes) / 1000000000).toLocaleString('zh-TW', { maximumFractionDigits: 9 }) + ' GB（' + Number(bytes).toLocaleString('zh-TW') + ' bytes）';
+  }
+  function selectFlowTarget(view, state) {
+    if (activeView !== view) activateWorkspace(state.workspaceId);
+    view.panes[state.slot].config.activeTabId = state.tabId;
+    renderPane(view, state.slot); markFocused(view, state.slot, state.tabId);
+  }
+  async function startFlowTerminal(view, state) {
+    if (!isActive(state)) {
+      observeRun(state, getTabConfig(view.config, state.slot, state.tabId).command);
+      if (!startSlot(view, state.slot, state.tabId, false)) throw Error('無法啟動終端。');
+    }
+    var deadline = Date.now() + 30000;
+    while (state.status === 'starting' && Date.now() < deadline) await flowDelay(100);
+    var observation = activeRun.output.get(state);
+    if (state.status !== 'running' && !(state.status === 'exited' && state.exitCode === 0 && observation && observation.started))
+      throw Error('終端啟動失敗或逾時。');
+  }
+  async function stopFlowTerminal(view, state) {
+    if (state.status === 'running') {
+      if (!send(withGeneration(state, { type: 'stop' }))) throw Error('無法停止終端。');
+      state.status = 'stopping'; renderPane(view, state.slot);
+    }
+    var deadline = Date.now() + 10000;
+    while (isBusy(state) && Date.now() < deadline) await delay(100);
+    if (isActive(state)) throw Error('終端尚未停止，請稍後重試。');
+  }
+  async function runNanTransfer(view, pingState, step, stepNumber, plan) {
+    var ping = activeRun.output.get(pingState);
+    var pingGeneration = ping && ping.generation;
+    function requirePingReply() {
+      if (!ping || pingState.status !== 'running' || !ping.buffer.hasPingReply()) throw Error('本次流程需要 DUT2 的 Ping 回覆。');
+      ensureRunCurrent(pingState, pingGeneration);
+    }
+    requirePingReply();
+    $('nanTransferAmount').textContent = formatNanAmount(step.text);
+    var choice = await new Promise(function (resolve) {
+      nanTransferResolve = resolve; $('nanTransferDialog').showModal();
+    });
+    if (!choice) throw Error('已取消傳輸測試。');
+    requirePingReply();
+    activeRun.lines.push('傳輸選擇 ' + choice + ' · ' + formatNanAmount(step.text));
+    if (choice === 'share') {
+      var completed = await waitForUserContinue('在 DUT2 用 Quick Share 傳送 ' + formatNanAmount(step.text) + ' 的測試檔到 DUT1。請在接收端確認檔案已完整接收，再按「繼續」。', stepNumber);
+      if (!completed) throw Error('未確認 Quick Share 已完成。');
+      activeRun.lines.push('使用者確認 Quick Share 完成。');
+      return;
+    }
+
+    var targets = plan[choice].map(function (target) {
+      var state = getState(view.config.id, target.slot, target.tab.id);
+      var current = getTabConfig(view.config, target.slot, target.tab.id);
+      if (!state || isActive(state) || !current || current.exe !== target.tab.exe || current.args !== target.tab.args || current.shell !== target.tab.shell ||
+          current.cwd !== target.tab.cwd || current.command !== target.tab.command || current.batchFile !== target.tab.batchFile)
+        throw Error('傳輸分頁設定已變更或正在使用，請確認後重跑。');
+      return state;
+    });
+    var owned = [], cleanupError = null;
+    async function start(state) {
+      selectFlowTarget(view, state);
+      var starting = startFlowTerminal(view, state);
+      var observation = activeRun.output.get(state);
+      if (observation) owned.push({ state: state, observation: observation });
+      await starting;
+    }
+    try {
+      await start(targets[0]);
+      await waitForFlowCondition({ action: 'output', text: 'Server listening', timeoutMs: 10000 }, targets[0]);
+      requirePingReply();
+      if (targets[0].status !== 'running') throw Error('Server 已停止，未啟動傳輸。');
+      await start(targets[1]);
+      await waitForFlowCondition({ action: 'exit', timeoutMs: 600000 }, targets[1]);
+    } finally {
+      for (var item of owned.reverse()) {
+        try {
+          var deadline = Date.now() + 30000;
+          while (!item.observation.started && item.state.status === 'starting' && Date.now() < deadline) await delay(100);
+          if (item.observation.started && item.state.generation === item.observation.firstStartedGeneration &&
+              getState(item.state.workspaceId, item.state.slot, item.state.tabId) === item.state) await stopFlowTerminal(view, item.state);
+        } catch (error) {
+          activeRun.lines.push('停止傳輸終端失敗 · ' + error.message);
+          cleanupError = Error('請手動確認 ' + choice + ' 終端已停止。');
+        }
+      }
+    }
+    if (cleanupError) throw cleanupError;
   }
   function observeRun(state, command) {
     var previous = activeRun.output.get(state);
@@ -1782,9 +1902,15 @@
         ensureRunCurrent(state, generation);
         if (step.action === 'output' && observation.buffer.match(step.failureText, observation.command))
           throw Error('收到失敗文字「' + step.failureText + '」。');
-        if (step.action === 'output' && observation.buffer.match(step.text, observation.command)) return;
+        if (step.action === 'output') {
+          var matches = state.tabId === 'nan-ping' && step.text === 'bytes from' ? observation.buffer.hasPingReply() : observation.buffer.match(step.text, observation.command);
+          if (matches) return;
+        }
         if (state.status === 'exited') {
-          if (step.action === 'exit' && state.exitCode === 0) return;
+          if (step.action === 'exit' && state.exitCode === 0) {
+            if (state.tabId === 'nan-python-probe' && !observation.buffer.hasLine('NAN_PING_OK')) throw Error('Python 驗證未取得成功回覆。');
+            return;
+          }
           throw Error('終端已結束（代碼 ' + state.exitCode + '）。');
         }
         if (state.status === 'error') throw Error('終端發生錯誤。');
@@ -1800,11 +1926,13 @@
     var workspace = flowWorkspace(flow);
     flowPreparing = true;
     var shared = Object.create(null);
+    var transferPlans = new Map();
     try {
       for (var p = 0; p < flow.steps.length; p++) {
         var planned = flow.steps[p], tab = workspace.slots[planned.slot].tabs.find(function (t) { return t.id === planned.tabId; });
         if (planned.action === 'start' && tab && window.TerminalGridDefaults.keys(window.TerminalGridDefaults.prepare(tab.command)).length) { showToast('請先在終端設定填妥啟動指令參數；範本請放在流程「輸入指令」步驟。', true); return; }
         if (planned.action === 'output' && !planned.text.trim()) { showToast('第 ' + (p + 1) + ' 步請填入成功文字。', true); return; }
+        if (planned.action === 'nanTransfer') transferPlans.set(p, nanTransferPlan(JSON.parse(JSON.stringify(workspace)), planned));
         if (planned.action !== 'send') continue;
         planned.text = window.TerminalGridDefaults.prepare(planned.text);
         var keys = window.TerminalGridDefaults.keys(planned.text);
@@ -1825,6 +1953,13 @@
       if (step.action === 'start' && tab.batchFile) verb = '啟動 CMD · BAT 原檔：' + tab.batchFile + '\n（啟動不會等待 BAT 完成）';
       if (step.action === 'output') verb = '等待輸出「' + step.text + '」' + (step.failureText ? '，遇到「' + step.failureText + '」停止' : '');
       if (step.action === 'exit') verb = '等待終端以代碼 0 結束';
+      if (step.action === 'nanTransfer') {
+        var transferPlan = transferPlans.get(i);
+        verb = '收到 Ping 回覆後選擇傳輸 ' + formatNanAmount(step.text) + '。Quick Share 由使用者操作。';
+        ['iperf3', 'iperf'].forEach(function (tool) {
+          transferPlan[tool].forEach(function (target) { verb += '\n' + target.tab.name + ' · ' + target.tab.exe + ' ' + target.tab.args; });
+        });
+      }
       return step.action === 'pause' || step.action === 'wait' ? (i + 1) + '. ' + verb : (i + 1) + '. ' + String(step.slot + 1).padStart(2, '0') + ' 格 / ' + tab.name + ' · ' + verb;
     });
     if (!(await askConfirmation('執行「' + flow.name + '」？', '以下步驟會依序送到本機終端：\n\n' + summaryLines.join('\n') + '\n\n請確認目標與指令正確。', '確認執行'))) return;
@@ -1850,29 +1985,19 @@
         }
         var view = getView(flow.workspaceId), state = getState(flow.workspaceId, step.slot, step.tabId);
         if (!view || !state) throw new Error('第 ' + (i + 1) + ' 步找不到目標終端。');
-        activateWorkspace(flow.workspaceId); view.panes[step.slot].config.activeTabId = step.tabId; renderPane(view, step.slot); markFocused(view, step.slot, step.tabId);
+        selectFlowTarget(view, state);
         if (step.action === 'start') {
-          if (!isActive(state)) {
-            var tabConfig = getTabConfig(workspace, step.slot, step.tabId);
-            observeRun(state, tabConfig.command);
-            if (!startSlot(view, step.slot, step.tabId, false)) throw new Error('無法啟動終端。');
-          }
-          var startDeadline = Date.now() + 30000;
-          while (state.status === 'starting' && Date.now() < startDeadline) await flowDelay(100);
-          var started = activeRun.output.get(state);
-          if (state.status !== 'running' && !(state.status === 'exited' && state.exitCode === 0 && started && started.started))
-            throw new Error('第 ' + (i + 1) + ' 步啟動失敗或逾時。');
+          await startFlowTerminal(view, state);
         } else if (step.action === 'send') {
           if (state.status !== 'running') throw new Error('第 ' + (i + 1) + ' 步目標尚未執行；請先加入「啟動終端」步驟。');
           observeRun(state, step.text);
           if (step.text && !send(withGeneration(state, { type: 'input', data: step.text + (step.enter ? '\r' : '') }))) throw Error('無法送出指令。');
         } else if (step.action === 'output' || step.action === 'exit') {
           await waitForFlowCondition(step, state);
+        } else if (step.action === 'nanTransfer') {
+          await runNanTransfer(view, state, step, i + 1, transferPlans.get(i));
         } else if (step.action === 'stop') {
-          if (state.status === 'running') { state.status = 'stopping'; renderPane(view, step.slot); send(withGeneration(state, { type: 'stop' })); }
-          var stopDeadline = Date.now() + 10000;
-          while (isBusy(state) && Date.now() < stopDeadline) await flowDelay(100);
-          if (isActive(state)) throw Error('終端尚未停止，請稍後重試。');
+          await stopFlowTerminal(view, state);
         }
         if (step.delayMs > 0) await flowDelay(step.delayMs);
       }
@@ -2466,7 +2591,7 @@
     var flowTools = document.createElement('div');
     flowTools.innerHTML = '<p id="flowProgress" role="status"></p><p id="flowLogPath" class="help-note"></p><div class="folder-input-row"><button id="stopRunningFlow" class="button" disabled>停止流程</button><button id="exportFlowLog" class="button">匯出最近流程 Log</button></div>';
     $('flowSteps').after(flowTools);
-    $('stopRunningFlow').addEventListener('click', function () { if (activeRun) activeRun.cancelled = true; finishFlowPause(false); });
+    $('stopRunningFlow').addEventListener('click', function () { if (activeRun) activeRun.cancelled = true; finishFlowPause(false); finishNanTransfer(null); });
     $('exportFlowLog').addEventListener('click', function () {
       if (!lastRun) { showToast('本次開啟程式後尚未完成流程。'); return; }
       send({ type: 'exportLog', text: lastRun.lines.join('\r\n') });
@@ -2520,16 +2645,30 @@
     $('nanDiscover').addEventListener('click', discoverNanDevices);
     $('nanBrowse').addEventListener('click', function () { if (nanPathId) return; nanPathId = uid('nan-folder'); send({ type: 'pickCommandPath', requestId: nanPathId, kind: 'folder' }); });
     $('nanDialog').addEventListener('close', function () { nanDiscoveryId = null; nanPathId = null; });
-    $('nanTool').addEventListener('change', function () {
-      if (this.value === 'share') return;
-      ['nanBin1', 'nanBin2'].forEach(function (id) { if (['iperf', 'iperf3'].indexOf($(id).value) >= 0) $(id).value = $('nanTool').value; });
-      if (['5001', '5201'].indexOf($('nanPort').value) >= 0) $('nanPort').value = this.value === 'iperf' ? '5001' : '5201';
-    });
+    function syncNanToolFields() {
+      var mode = $('nanTool').value, choose = mode === 'choose', family = mode === 'iperf' ? 'iperf' : 'iperf3';
+      if (mode !== 'share') {
+        ['nanBin1', 'nanBin2'].forEach(function (id) { if (['iperf', 'iperf3'].includes($(id).value)) $(id).value = family; });
+        if (['5001', '5201'].includes($('nanPort').value)) $('nanPort').value = family === 'iperf' ? '5001' : '5201';
+      }
+      $('nanBin1Label').textContent = 'DUT1 ' + family + ' 名稱／Android 路徑';
+      $('nanBin2Label').textContent = 'DUT2 ' + family + ' 名稱／Android 路徑';
+      $('nanPortLabel').textContent = choose ? 'iperf3 Port（iperf 2 使用 5001）' : 'Port';
+      $('nanAmountLabel').textContent = choose ? '傳輸量（bytes）' : '傳輸量（-n）';
+      $('nanIperf2Fields').hidden = !choose;
+      $('nanPythonOption').hidden = !choose;
+      $('nanPythonField').hidden = !choose || !$('nanUsePython').checked;
+    }
+    $('nanTool').addEventListener('change', syncNanToolFields);
+    $('nanUsePython').addEventListener('change', syncNanToolFields);
+    syncNanToolFields();
     $('nanForm').addEventListener('submit', function (event) {
       event.preventDefault();
       if (flowRunning || flowPreparing || nanPathId) { showToast('請先完成目前流程或資料夾選擇。'); return; }
       if (appConfig.workspaces.length >= 12 || appConfig.automations.length >= 32) { showToast('工作區或流程已達上限，請先移除不需要的項目。', true); return; }
-      var values = { recovery: $('nanRecovery').checked }; ['Dut1', 'Dut2', 'If1', 'If2', 'Tool', 'Bin1', 'Bin2', 'Amount', 'Port', 'Folder'].forEach(function (key) { values[key.toLowerCase()] = $('nan' + key).value.trim(); });
+      var values = { recovery: $('nanRecovery').checked, usePython: $('nanTool').value === 'choose' && $('nanUsePython').checked,
+        pythonPath: $('nanPythonPath').value.trim(), bin1Iperf2: $('nanBin1Iperf2').value.trim(), bin2Iperf2: $('nanBin2Iperf2').value.trim() };
+      ['Dut1', 'Dut2', 'If1', 'If2', 'Tool', 'Bin1', 'Bin2', 'Amount', 'Port', 'Folder'].forEach(function (key) { values[key.toLowerCase()] = $('nan' + key).value.trim(); });
       try { var flow = window.TerminalGridNan.create(values); $('nanDialog').close(); loadFlowFile(JSON.stringify(flow), 'NAN.tgridflow'); }
       catch (error) { showToast(error.message, true); }
     });
@@ -2677,6 +2816,10 @@
     $('continuePausedFlowButton').addEventListener('click', function () { finishFlowPause(true); });
     $('stopPausedFlowButton').addEventListener('click', function () { finishFlowPause(false); });
     $('flowPauseDialog').addEventListener('cancel', function (event) { event.preventDefault(); finishFlowPause(false); });
+    $('nanTransferDialog').addEventListener('cancel', function (event) { event.preventDefault(); finishNanTransfer(null); });
+    $('nanTransferDialog').querySelectorAll('[data-nan-transfer]').forEach(function (button) {
+      button.addEventListener('click', function () { finishNanTransfer(button.dataset.nanTransfer || null); });
+    });
     $('commandPackSelect').addEventListener('change', renderCommandLibrary);
     $('newPackButton').addEventListener('click', newCommandPack);
     $('renamePackButton').addEventListener('click', function () { var pack = selectedCommandPack(); if (pack) openPackDialog(pack); });

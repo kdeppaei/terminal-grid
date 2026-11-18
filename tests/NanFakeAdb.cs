@@ -2,6 +2,11 @@ using System;
 class NanFakeAdb {
     public static int Main(string[] args) {
         string scenario = Environment.GetEnvironmentVariable("TGRID_NAN_CASE") ?? "ok";
+        if (scenario == "python-ok" || scenario == "python-exit") {
+            Console.WriteLine("PYTHON " + String.Join("|", args));
+            if (scenario == "python-ok") Console.WriteLine("NAN_PING_OK");
+            return scenario == "python-exit" ? 7 : 0;
+        }
         if (args.Length < 4 || args[0] != "-s" || args[2] != "shell") return 9;
         if (args[3] == "-tt") { Console.WriteLine("EXEC " + args[1] + " " + String.Join(" ", args, 3, args.Length - 3)); return scenario == "exit" ? 7 : 0; }
         if (args[3] == "ip addr show") {

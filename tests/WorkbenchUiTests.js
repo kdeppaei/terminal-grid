@@ -276,6 +276,7 @@ async function main() {
     await page.locator('#nanForm button[type="submit"]').click();
     assert.equal(await page.locator('#nanDialog').isVisible(), true);
     await page.locator('#nanDut2').fill('DUT_TWO'); await page.locator('#nanIf1').fill('aware_data1');
+    await page.locator('#nanTool').selectOption('iperf3');
     await page.screenshot({ path: path.join(results, 'nan-wizard.png') });
     await reset(); await page.locator('#nanForm button[type="submit"]').click();
     assert.equal(await page.locator('.terminal-grid:visible .pane:visible').count(), 6);
@@ -303,6 +304,80 @@ async function main() {
     const traffic = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'start' && m.slot === 4));
     await emit({ type: 'exited', workspaceId: traffic.workspaceId, slot: 4, tabId: traffic.tabId, generation: 1, exitCode: 0 });
     await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 流程完成')));
+
+    await page.evaluate(() => {
+      const fixture = window.fixture, original = window.chrome.webview.postMessage;
+      window.chrome.webview.postMessage = message => {
+        original(message);
+        if (message.type === 'stop') setTimeout(() => fixture.emit({
+          type: 'exited', workspaceId: message.workspaceId, slot: message.slot, tabId: message.tabId,
+          generation: 1, exitCode: 0
+        }), 10);
+      };
+    });
+    async function receivedStart(tabId) {
+      await page.waitForFunction(id => window.fixture.messages.some(m => m.type === 'start' && m.tabId === id), tabId);
+      return page.evaluate(id => window.fixture.messages.find(m => m.type === 'start' && m.tabId === id), tabId);
+    }
+    async function tabOutput(start, line) {
+      await emit({ type: 'output', workspaceId: start.workspaceId, slot: start.slot, tabId: start.tabId, generation: 1, data: Buffer.from(line).toString('base64') });
+    }
+    async function prepareTransfer(python) {
+      await page.locator('#flowButton').click();
+      await page.locator('#nanWorkflowButton').click();
+      await page.locator('#nanTool').selectOption('choose');
+      await page.locator('#nanUsePython').setChecked(python);
+      if (python) await page.locator('#nanPythonPath').fill('C:\\Python Tools\\python.exe');
+      await page.locator('#nanForm button[type="submit"]').click();
+      await reset(); await page.locator('#runFlowButton').click();
+      assert.match(await page.locator('#confirmMessage').innerText(), /1300000000/);
+      await page.locator('#confirmAccept').click();
+      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('AScC') && document.getElementById('flowPauseDialog').open);
+      await page.locator('#continuePausedFlowButton').click();
+      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('Start BLE') && document.getElementById('flowPauseDialog').open);
+      await page.locator('#continuePausedFlowButton').click();
+      if (python) {
+        const probe = await receivedStart('nan-python-probe');
+        assert.match(probe.config.args, /--python "C:\\Python Tools\\python\.exe"$/);
+        await page.waitForFunction(() => document.querySelector('.terminal-grid:not([hidden]) .pane[data-slot="3"]').dataset.status === 'running');
+        await tabOutput(probe, 'NAN_PING_OK\r\n');
+        await emit({ type: 'exited', workspaceId: probe.workspaceId, slot: probe.slot, tabId: probe.tabId, generation: 1, exitCode: 0 });
+      }
+      const ping = await receivedStart('nan-ping');
+      await page.waitForFunction(() => document.querySelector('.terminal-grid:not([hidden]) .pane[data-slot="3"]').dataset.status === 'running');
+      await tabOutput(ping, 'PING fe80::1 \r\nwarning: no bytes from this destination\r\n');
+      await page.waitForTimeout(250);
+      assert.equal(await page.locator('#nanTransferDialog').isVisible(), false);
+      await tabOutput(ping, '64 bytes from fe80::1: icmp_seq=1 ttl=64 time=1.3 ms\r\n');
+      await page.locator('#nanTransferDialog').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('#nanTransferAmount').innerText(), '1.3 GB（1,300,000,000 bytes）');
+      assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' && /nan-(server|traffic)/.test(m.tabId))), false);
+    }
+    await prepareTransfer(true);
+    await page.screenshot({ path: path.join(results, 'nan-transfer.png') });
+    await page.locator('[data-nan-transfer="share"]').click();
+    await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('Quick Share') && document.getElementById('flowPauseDialog').open);
+    await page.locator('#continuePausedFlowButton').click();
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('使用者確認 Quick Share 完成') && m.text.includes('結果 流程完成')));
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' && /nan-(server|traffic)/.test(m.tabId))), false);
+    pass('Python marker and real-shaped fresh Ping reply gate Quick Share, with user-confirmed completion and no iperf process');
+
+    for (const [choice, suffix] of [['iperf', '-iperf2'], ['iperf3', '']]) {
+      await prepareTransfer(false);
+      await page.locator('[data-nan-transfer="' + choice + '"]').click();
+      const selectedServer = await receivedStart('nan-server' + suffix);
+      assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' && m.tabId.startsWith('nan-traffic'))), false);
+      await page.waitForFunction(() => document.querySelector('.terminal-grid:not([hidden]) .pane[data-slot="2"]').dataset.status === 'running');
+      await tabOutput(selectedServer, 'Server listening on port 5001\r\n');
+      const selectedClient = await receivedStart('nan-traffic' + suffix);
+      assert.match(selectedClient.config.args, /--amount "1300000000"/);
+      assert.equal(selectedClient.slot, 4);
+      await page.waitForFunction(() => document.querySelector('.terminal-grid:not([hidden]) .pane[data-slot="4"]').dataset.status === 'running');
+      await emit({ type: 'exited', workspaceId: selectedClient.workspaceId, slot: selectedClient.slot, tabId: selectedClient.tabId, generation: 1, exitCode: 0 });
+      await page.waitForFunction(id => window.fixture.messages.some(m => m.type === 'stop' && m.tabId === id), selectedServer.tabId);
+      await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 流程完成')));
+    }
+    pass('both iperf selections wait for the matching receiver and send exactly 1300000000 as the byte target');
 
     const config = { workspaces: [{ id: 'conditions', name: 'Conditions', rows: 1, cols: 1,
       slots: [{ tabs: [{ id: 'check', name: 'Check', shell: 'CMD' }] }] }],

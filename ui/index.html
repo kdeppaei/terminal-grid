@@ -113,6 +113,20 @@
 
   <dialog id="flowPauseDialog" class="modal compact-modal" aria-labelledby="flowPauseTitle"><div class="modal-heading"><div><span class="eyebrow">USER ACTION REQUIRED</span><h2 id="flowPauseTitle">流程等待操作</h2></div></div><div class="modal-content"><p id="flowPauseMessage" class="pause-message"></p><p class="help-note">按「繼續」才會執行後續步驟。「停止流程」只會取消後續自動化，不會關閉已啟動的終端。</p></div><div class="modal-actions"><button id="stopPausedFlowButton" type="button" class="button quiet">停止流程</button><span class="toolbar-spacer"></span><button id="continuePausedFlowButton" type="button" class="button primary">繼續</button></div></dialog>
 
+  <dialog id="nanTransferDialog" class="modal compact-modal" aria-labelledby="nanTransferTitle">
+    <div class="modal-heading"><h2 id="nanTransferTitle">Ping 成功 · 選擇傳輸測試</h2></div>
+    <div class="modal-content">
+      <p>從 DUT2 傳到 DUT1，目標資料量 <strong id="nanTransferAmount"></strong></p>
+      <p class="help-note">iperf 會啟動雙端測試。Quick Share 請在手機選擇對應大小的測試檔。</p>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="button quiet" data-nan-transfer="" autofocus>結束本次流程</button>
+      <button type="button" class="button" data-nan-transfer="iperf3">iperf3</button>
+      <button type="button" class="button" data-nan-transfer="iperf">iperf 2</button>
+      <button type="button" class="button" data-nan-transfer="share">Quick Share</button>
+    </div>
+  </dialog>
+
   <dialog id="commandDialog" class="modal command-modal" aria-labelledby="commandTitle"><div class="modal-heading"><div><span class="eyebrow">COMMAND LIBRARY</span><h2 id="commandTitle">常用指令庫</h2></div><button class="icon-button modal-close" data-close="commandDialog" aria-label="關閉指令庫">×</button></div><div class="modal-content"><div class="flow-toolbar"><select id="commandPackSelect" aria-label="指令包"></select><button id="newPackButton" class="button">新增指令包</button><button id="renamePackButton" class="button quiet">重新命名</button><button id="duplicatePackButton" class="button quiet">複製</button><button id="deletePackButton" class="button danger">刪除</button><button id="importPackButton" class="button">匯入 .tgridcmd</button></div><div id="commandList" class="command-list"></div><p class="help-note">可將指令拖到終端，或在終端按 Shift＋右鍵選取。拖曳／插入只會填入文字，不會按 Enter 執行。</p><div class="flow-actions"><button id="addCommandButton" class="button">＋ 新增指令</button><span class="toolbar-spacer"></span><button id="exportPackButton" class="button">另存 .tgridcmd</button></div></div><div class="modal-actions"><button class="button" data-close="commandDialog">完成</button></div></dialog>
 
   <div id="terminalContextMenu" class="terminal-context-menu" hidden></div>
@@ -121,18 +135,21 @@
   <dialog id="nanDialog" class="modal" aria-labelledby="nanTitle"><form id="nanForm">
     <div class="modal-heading"><div><span class="eyebrow">WI-FI AWARE</span><h2 id="nanTitle">NAN／NDP 雙手機流程</h2></div><button type="button" class="icon-button" data-close="nanDialog" aria-label="關閉 NAN 設定">×</button></div>
     <div class="modal-content">
-      <p class="help-note">建立六格工作區與可編輯、可另存的流程。scrcpy → 等待 APK 建立 NDP → 即時查 DUT1 IPv6 → DUT2 持續 ping6 → 確認後傳流量。</p>
+      <p class="help-note">依提示在兩台手機建立 NDP。DUT2 收到 IPv6 Ping 回覆後，即可選擇傳輸測試。</p>
       <button id="nanDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="nanStatus" role="status" class="help-note"></p>
       <div class="form-two"><label class="field">DUT1 · Server<input id="nanDut1" list="nanDevices" required placeholder="序號"></label><label class="field">DUT2 · Client<input id="nanDut2" list="nanDevices" required placeholder="另一台序號"></label></div><datalist id="nanDevices"></datalist>
       <div class="form-two"><label class="field">DUT1 查詢介面<input id="nanIf1" list="nanInterfaces" value="auto" required></label><label class="field">DUT2 發送介面（scope）<input id="nanIf2" list="nanInterfaces" value="auto" required></label></div>
       <datalist id="nanInterfaces"><option value="auto">自動偵測（建立 NDP 後）</option></datalist>
       <label><input id="nanRecovery" type="checkbox"> 加入 NDP 中斷、USB 重插與重建驗收</label>
-      <div class="form-two"><label class="field">測試模式<select id="nanTool"><option value="iperf3">iperf3 流量</option><option value="iperf">iperf 2 流量</option><option value="share">Quick Share · 手動傳檔＋Ping</option></select></label><label class="field">傳輸量（-n）<input id="nanAmount" value="1300M" required></label></div>
-      <div class="form-two"><label class="field">DUT1 工具名稱／Android 路徑<input id="nanBin1" value="iperf3" required></label><label class="field">DUT2 工具名稱／Android 路徑<input id="nanBin2" value="iperf3" required></label></div>
-      <label class="field">Port<input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
+      <div class="form-two"><label class="field">測試模式<select id="nanTool"><option value="choose">Ping 成功後選擇</option><option value="iperf3">固定 iperf3</option><option value="iperf">固定 iperf 2</option><option value="share">固定 Quick Share</option></select></label><label class="field"><span id="nanAmountLabel">傳輸量（bytes）</span><input id="nanAmount" value="1300000000" required></label></div>
+      <div class="form-two"><label class="field"><span id="nanBin1Label">DUT1 iperf3 名稱／Android 路徑</span><input id="nanBin1" value="iperf3" required></label><label class="field"><span id="nanBin2Label">DUT2 iperf3 名稱／Android 路徑</span><input id="nanBin2" value="iperf3" required></label></div>
+      <div id="nanIperf2Fields" class="form-two"><label class="field">DUT1 iperf 2 名稱／Android 路徑<input id="nanBin1Iperf2" value="iperf"></label><label class="field">DUT2 iperf 2 名稱／Android 路徑<input id="nanBin2Iperf2" value="iperf"></label></div>
+      <label class="field"><span id="nanPortLabel">iperf3 Port（iperf 2 使用 5001）</span><input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
+      <label id="nanPythonOption"><input id="nanUsePython" type="checkbox"> 先執行 Python 雙機驗證（需 Python 3.9+）</label>
+      <label class="field" id="nanPythonField" hidden>Python 執行檔路徑（留空使用 PATH）<input id="nanPythonPath" placeholder="C:\Tools\Python\python.exe"></label>
       <label class="field">本機 adb／scrcpy 資料夾（留空使用 PATH）<div class="folder-input-row"><input id="nanFolder" placeholder="例如 D:\Tools\scrcpy"><button id="nanBrowse" type="button" class="button">選資料夾…</button></div></label>
       <p class="help-note">介面填 auto 時，建立 NDP 後偵測兩端 Wi-Fi Aware 介面。每次重啟 Ping／Traffic 都重新查 DUT1 IPv6。% 後使用 DUT2 發送介面。若有多個候選，請手動指定。手機兩端需已有相同系列的 iperf。</p>
-      <p class="help-note">Ping、Server 在流量結束後保留，可用 Ctrl+C／停止該格結束。Ping 有助維持活動流量，但無法保證 APK 不釋放 NDP。Quick Share 由使用者操作，實際連線路徑依手機決定。</p>
+      <p class="help-note">Ping 分頁會持續保活，可按 Ctrl+C 停止。Quick Share 由手機操作，實際傳輸路徑依手機決定。</p>
     </div><div class="modal-actions"><button type="button" class="button quiet" data-close="nanDialog">取消</button><button type="submit" class="button primary">建立工作區與流程</button></div>
   </form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

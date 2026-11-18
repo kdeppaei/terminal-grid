@@ -91,6 +91,8 @@
 .flow-conditions input[type="number"] { width: 85px; }
 .flow-conditions input:not([type]) { flex: 1; }
 .flow-step.flow-failed { border-color: #f1848d; }
+#nanTransferDialog .modal-actions { flex-wrap: wrap; }
+#nanIperf2Fields[hidden], #nanPythonField[hidden] { display: none; }
 .pane.batch-selected { outline: 2px solid #7be0d4; outline-offset: -3px; }
 #flowLogPath { overflow-wrap: anywhere; }
 #terminalLogText { width: 100%; resize: vertical; margin: 10px 0; font: 12px Consolas, monospace; }

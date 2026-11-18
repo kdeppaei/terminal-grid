@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '3.16.0',
+    [string]$Version = '3.17.0',
     [switch]$SkipBuild,
     [string]$ApplicationPath = (Join-Path $PSScriptRoot 'TerminalGridIntegrated.exe')
 )
@@ -23,6 +23,8 @@ foreach ($item in $payloadItems) {
     if (-not (Test-Path -LiteralPath $sourceItem)) { throw "Missing package item: $item" }
     Copy-Item -LiteralPath $sourceItem -Destination $payloadFolder -Recurse
 }
+New-Item -ItemType Directory -Path (Join-Path $payloadFolder 'tools') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'tools\nan_verify.py') -Destination (Join-Path $payloadFolder 'tools\nan_verify.py')
 Copy-Item -LiteralPath $applicationFile -Destination (Join-Path $payloadFolder 'TerminalGridIntegrated.exe')
 Copy-Item -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName($applicationFile)) 'TerminalGridNan.exe') -Destination $payloadFolder
 $packageFiles = @(Get-ChildItem -LiteralPath $payloadFolder -File -Recurse | ForEach-Object { [ordered]@{ path=$_.FullName.Substring($payloadFolder.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })

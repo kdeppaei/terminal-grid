@@ -42,11 +42,11 @@ public static class NanRunner
         var values = new Dictionary<string, string>();
         if (args.Length % 2 != 0) throw new ArgumentException("Expected --name value pairs.");
         for (int i = 0; i < args.Length; i += 2) {
-            if (!new[] { "mode", "dut1", "dut2", "if1", "if2", "tool", "bin1", "bin2", "amount", "port", "folder" }.Contains(args[i].TrimStart('-')) || !args[i].StartsWith("--")) throw new ArgumentException("Unknown option: " + args[i]);
+            if (!new[] { "mode", "dut1", "dut2", "if1", "if2", "tool", "bin1", "bin2", "amount", "port", "folder", "python" }.Contains(args[i].TrimStart('-')) || !args[i].StartsWith("--")) throw new ArgumentException("Unknown option: " + args[i]);
             values.Add(args[i].Substring(2), args[i + 1]);
         }
         foreach (string key in new[] { "mode", "dut1", "dut2", "if1", "if2", "tool", "bin1", "bin2", "amount", "port", "folder" }) if (!values.ContainsKey(key)) throw new ArgumentException("Missing --" + key);
-        if (!new[] { "mirror1", "mirror2", "shell1", "shell2", "server", "ping", "traffic" }.Contains(values["mode"])) throw new ArgumentException("Unknown mode.");
+        if (!new[] { "mirror1", "mirror2", "shell1", "shell2", "server", "ping", "traffic", "python-probe" }.Contains(values["mode"])) throw new ArgumentException("Unknown mode.");
         foreach (string key in new[] { "dut1", "dut2" }) if (!Regex.IsMatch(values[key], @"^[A-Za-z0-9_.:\[\]%-]{1,128}$")) throw new ArgumentException("Invalid serial.");
         if (values["dut1"] == values["dut2"]) throw new ArgumentException("DUT1 and DUT2 must be different devices.");
         foreach (string key in new[] { "if1", "if2" }) if (!Regex.IsMatch(values[key], @"^[A-Za-z0-9_.-]{1,32}$")) throw new ArgumentException("Invalid interface.");
@@ -103,6 +103,22 @@ public static class NanRunner
             p.Start(); p.WaitForExit(); return p.ExitCode;
         }
     }
+    static int RunPythonProbe(string adb, Dictionary<string, string> values)
+    {
+        string configured;
+        values.TryGetValue("python", out configured);
+        string name = String.IsNullOrWhiteSpace(configured) ? "python.exe" : configured;
+        string python = Path.IsPathRooted(name) && File.Exists(name) && String.Equals(Path.GetExtension(name), ".exe", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetFullPath(name) : ShellBuilder.FindExecutable(name);
+        if (python == null) throw new FileNotFoundException("Cannot find Python. Install Python or select the path to python.exe in the NAN wizard.");
+
+        string script = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "nan_verify.py");
+        if (!File.Exists(script)) throw new FileNotFoundException("Cannot find tools/nan_verify.py. Extract the complete Terminal Grid package.");
+        return Run(python, new[] {
+            "-u", script, "--adb", adb, "--dut1", values["dut1"], "--dut2", values["dut2"],
+            "--if1", values["if1"], "--if2", values["if2"], "--ping", "--terminal-grid"
+        });
+    }
     public static int Main(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
@@ -110,6 +126,7 @@ public static class NanRunner
             var v = Parse(args); string mode = v["mode"], folder = v["folder"];
             if (mode.StartsWith("mirror")) return Run(FindTool("scrcpy", folder), new[] { "-s", v[mode == "mirror1" ? "dut1" : "dut2"], "--window-title", mode == "mirror1" ? "DUT1 - NAN" : "DUT2 - NAN" });
             string adb = FindTool("adb", folder);
+            if (mode == "python-probe") return RunPythonProbe(adb, v);
             if (mode.StartsWith("shell")) return Run(adb, new[] { "-s", v[mode == "shell1" ? "dut1" : "dut2"], "shell", "-tt" });
             string serial, command;
             string ipv6Flag = v["tool"] == "iperf3" ? "-6" : "-V";

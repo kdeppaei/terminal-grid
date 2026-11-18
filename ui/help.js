@@ -1,9 +1,11 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.16.0', updated: '2026-11-18',
+    version: '3.17.0', updated: '2026-11-19',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['Ping 成功後選擇傳輸', 'NAN／NDP 精靈預設收到本次 DUT2 的 IPv6 Ping 回覆後，才顯示 iperf3、iperf 2 與 Quick Share。預設 1.3 GB（1,300,000,000 bytes）。iperf 選項會啟動 DUT1 Server，確認監聽後從 DUT2 傳輸，完成時停止該 Server。Quick Share 請在手機選檔並確認收件。'],
+        ['Python 雙機驗證', '精靈可勾選「先執行 Python 雙機驗證」。指定 Python 3.9 以上的執行檔，或留空使用 PATH。GUI 會呼叫隨包附上的 tools/nan_verify.py，讀取兩端 Aware 介面並由 DUT2 發出兩個 Ping 封包。'],
         ['由 IPv6 產生 DUT2 指令', '資料暫存中對 DUT1 的最新 IPv6 按右鍵，選產生 ping6 或 iperf3，再選已進入 DUT2 adb shell 的終端。scope 來自 DUT2 最近查詢，iperf3 預填 -f m -n 1300M。填入輸入列後按 Enter 送出。'],
         ['最近查詢與歷史', '資料暫存依終端分組。辨識到 ifconfig、ip addr 或 ipconfig 查詢時，該終端舊值轉入歷史區。重新讀到介面時也會更新該介面的記錄。補全與 DUT2 產生器使用最近結果，NDP 重建後請重新查詢。'],
         ['收藏與釘選', '終端完整右鍵選單的「存到我的常用…」可收藏框選文字。指令庫按 ☆ 釘選，終端選單頂端最多顯示 15 個釘選項目，其餘可從指令庫取用。'],
