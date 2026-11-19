@@ -50,6 +50,8 @@ try {
     $null = Build-Test -Name 'NativeEditingHarness' -Sources @('source\Config.cs', 'source\PtySession.cs', 'tests\NativeEditingHarness.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
     $targetTest = Build-Test -Name 'TargetDiscoveryTests' -Sources @('source\Config.cs', 'source\TargetDiscovery.cs', 'source\AndroidLaunch.cs', 'tests\TargetDiscoveryTests.cs') -References @('System.dll', 'System.Core.dll', 'System.Web.Extensions.dll')
     Invoke-CheckedNative -Executable $targetTest -Arguments @()
+    $timestampLogTest = Build-Test -Name 'TimestampedLogTests' -Sources @('source\TimestampedLog.cs', 'tests\TimestampedLogTests.cs') -References @('System.dll')
+    Invoke-CheckedNative -Executable $timestampLogTest -Arguments @()
     New-Item -ItemType Directory -Path (Join-Path $testWork 'nan-tools') -Force | Out-Null
     $nanFake = Build-Test -Name 'nan-tools\adb' -Sources @('tests\NanFakeAdb.cs') -References @('System.dll')
     $nanSources = @('source\Config.cs', 'source\TargetDiscovery.cs', 'source\nan\NanRunner.cs')

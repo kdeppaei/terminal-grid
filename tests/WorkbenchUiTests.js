@@ -286,6 +286,7 @@ async function main() {
     await page.locator('#nanForm details summary').click();
     const evidenceChecklist = '核對接收紀錄\n記下吞吐量';
     await page.locator('#nanAfterTransfer').fill(evidenceChecklist);
+    await page.locator('#nanDuringTransfer').fill('觸發測試操作');
     await reset(); await page.locator('#nanForm button[type="submit"]').click();
     assert.equal(await page.locator('.terminal-grid:visible .pane:visible').count(), 6);
     assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
@@ -294,6 +295,7 @@ async function main() {
     assert.equal(nanFile.workspace.slots[5].tabs.length, 2);
     assert.match(nanFile.workspace.slots[3].tabs[0].args, /--if1 "aware_data1" --if2 "auto"/);
     assert.equal(nanFile.steps.filter(s => s.action === 'pause').length, 3);
+    assert.equal(nanFile.steps.find(s => s.action === 'trafficPause').tabId, 'nan-traffic');
     assert.equal(nanFile.steps.at(-1).text, '傳輸完成後\n' + evidenceChecklist);
     assert.equal(await page.locator('#flowSteps textarea.flow-step-text').last().inputValue(), nanFile.steps.at(-1).text);
     assert.deepEqual(nanFile.steps.slice(0, 3).map(s => s.action), ['stop', 'stop', 'stop']);
@@ -312,11 +314,26 @@ async function main() {
     await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'start' && m.slot === 4));
     pass('NAN wizard creates exportable six-cell workflow; manual NDP/server pauses gate ping and traffic with correct DUT mapping');
     const traffic = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'start' && m.slot === 4));
+    async function liveSample(line) {
+      await emit({ type: 'output', workspaceId: traffic.workspaceId, slot: 4, tabId: traffic.tabId, generation: 1, data: Buffer.from(line + '\r\n').toString('base64') });
+    }
+    await liveSample('[  5] 0.00-1.00 sec  5 MBytes  40 Mbits/sec');
+    await page.getByRole('button', { name: '開始操作', exact: true }).click();
+    await liveSample('[  5] 1.00-2.00 sec  1 MBytes  8 Mbits/sec');
+    await page.getByRole('button', { name: '完成操作', exact: true }).click();
+    await liveSample('[  5] 2.00-3.00 sec  4 MBytes  32 Mbits/sec');
+    await liveSample('[  5] 0.00-3.00 sec  10 MBytes  27 Mbits/sec  receiver');
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'stop' && m.slot === 4)), false);
     await emit({ type: 'exited', workspaceId: traffic.workspaceId, slot: 4, tabId: traffic.tabId, generation: 1, exitCode: 0 });
     await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('傳輸完成後'));
     assert.equal(await page.locator('#flowPauseMessage').textContent(), nanFile.steps.at(-1).text);
     await page.locator('#continuePausedFlowButton').click();
     await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 流程完成')));
+    const liveLog = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'runSave').at(-1).text);
+    assert.match(liveLog, /操作前 .*40 Mbits\/sec/);
+    assert.match(liveLog, /操作中 .*8 Mbits\/sec/);
+    assert.match(liveLog, /操作後 .*32 Mbits\/sec/);
+    pass('the traffic checkpoint keeps iperf running and saves before/during/after samples and receiver evidence');
 
     await page.evaluate(() => {
       const fixture = window.fixture, original = window.chrome.webview.postMessage;
@@ -574,8 +591,82 @@ async function main() {
     await page.locator('#confirmAccept').waitFor({ state: 'visible' });
     assert.match(await page.locator('#confirmMessage').innerText(), /步驟一\s+核對接收紀錄/);
     assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' || m.type === 'input')), false);
-    await page.locator('#confirmCancel').click();
-    pass('local TC catalog saves notes, checks exact USB devices and opens a non-executing command preview');
+    await page.locator('#confirmAccept').click();
+    await page.waitForFunction(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').length === 2);
+    const recheck = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').at(-1));
+    await emit({ type: 'commandTargets', requestId: recheck.requestId, candidates: [checkedUsb('USB1')], adbPath: 'adb.exe' });
+    await page.locator('#testCaseDialog').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#testCaseStatus').innerText(), /執行前重新檢查.*USB2/);
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' || m.type === 'input')), false);
+    pass('TC checks exact USB devices before preview and stops when a required DUT is removed before execution');
+    await page.locator('#testCaseForm details summary').click();
+    const linkedFlow = await page.locator('#testCaseFlow option').nth(1).innerText();
+    await page.locator('#testCaseImportText').fill('code,title,flow,usbCount\nDEMO-02,兩機測試,' + linkedFlow + ',2');
+    await page.locator('#importTestCases').click();
+    await page.locator('#confirmAccept').click();
+    await page.locator('#testCaseQueue label').filter({ hasText: 'DEMO-02' }).locator('input').check();
+    await page.locator('#testCaseQueue label').filter({ hasText: 'DEMO-01' }).locator('input').check();
+    await reset();
+    await page.locator('#runTestCaseQueue').click();
+    const queueCheck = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'discoverCommandTargets'));
+    await emit({ type: 'commandTargets', requestId: queueCheck.requestId, candidates: [checkedUsb('USB1')], adbPath: 'adb.exe' });
+    await page.waitForFunction(() => document.getElementById('testCaseStatus').textContent.startsWith('DEMO-02'));
+    assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').length), 1);
+    assert.equal(await page.locator('#confirmDialog').isVisible(), false);
+    pass('batch TC import arrives inert and the queue stops at the first selected case on preflight failure');
+    await page.locator('#testCaseDialog [data-close]').click();
+    await page.locator('#flowDialog [data-close]').first().click();
+    await emit({ type: 'init', config: {
+      activeWorkspaceId: 'queue', workspaces: [{ id: 'queue', name: 'Local fixture', slots: [
+        { activeTabId: 'script', tabs: [{ id: 'script', name: 'Script fixture', shell: 'CMD' }] }
+      ] }],
+      automations: [{ id: 'script-flow', name: 'Script fixture', workspaceId: 'queue',
+        steps: [{ action: 'start', slot: 0, tabId: 'script' }, { action: 'exit', slot: 0, tabId: 'script' }] }],
+      testCases: [{ id: 'first', code: 'DEMO-A', title: 'First', flowId: 'script-flow' },
+        { id: 'second', code: 'DEMO-B', title: 'Second', flowId: 'script-flow' }]
+    } });
+    await page.evaluate(() => {
+      const fixture = window.fixture, original = window.chrome.webview.postMessage;
+      let generation = 0;
+      window.chrome.webview.postMessage = message => {
+        original(message);
+        if (message.type !== 'start') return;
+        setTimeout(() => {
+          const route = { workspaceId: message.workspaceId, slot: message.slot, tabId: message.tabId, generation: ++generation };
+          fixture.emit({ ...route, type: 'started', pid: 1600 + generation });
+          const path = 'C:\\Evidence\\' + message.recordRun + '.log';
+          fixture.emit({ ...route, type: 'recording', recording: true, path });
+          fixture.emit({ ...route, type: 'recording', recording: false, path });
+          fixture.emit({ ...route, type: 'exited', exitCode: 0 });
+        }, 20);
+      };
+    });
+    await page.locator('#flowButton').click();
+    await page.locator('#testCaseButton').click();
+    if (!(await page.locator('#testCaseQueue').isVisible())) await page.locator('#testCaseForm details summary').click();
+    await page.locator('#testCaseLogChecks').check();
+    await page.locator('#pickCaseRecordingFolder').click();
+    const evidenceFolderRequest = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'pickCommandPath').at(-1));
+    await emit({ type: 'commandPathPicked', requestId: evidenceFolderRequest.requestId, path: 'C:\\Evidence' });
+    await page.locator('#testCaseQueue label').filter({ hasText: 'DEMO-B' }).locator('input').check();
+    await page.locator('#testCaseQueue label').filter({ hasText: 'DEMO-A' }).locator('input').check();
+    await reset();
+    await page.locator('#runTestCaseQueue').click();
+    for (const code of ['DEMO-B', 'DEMO-A']) {
+      await page.locator('#confirmAccept').waitFor({ state: 'visible' });
+      assert.ok((await page.locator('#confirmTitle').innerText()).includes(code));
+      await page.locator('#confirmAccept').click();
+      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('保留仍需要的舊 Log'));
+      await page.locator('#continuePausedFlowButton').click();
+      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('停止本輪手機錄製'));
+      await page.locator('#continuePausedFlowButton').click();
+      await page.waitForFunction(id => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('測項 ' + id) && m.text.includes('結果 流程完成')), code);
+    }
+    const recordings = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start'));
+    assert.equal(recordings.length, 2);
+    assert.notEqual(recordings[0].recordRun, recordings[1].recordRun);
+    assert.ok(recordings.every(m => m.recordFolder === 'C:\\Evidence'));
+    pass('the TC queue advances in selection order with separately identified output recordings and manual log checkpoints');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

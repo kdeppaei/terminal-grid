@@ -16,7 +16,7 @@ jobs:
       version: ${{ steps.package.outputs.version }}
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       - name: Build application
@@ -43,6 +43,12 @@ jobs:
       - name: Test output matching and iperf evidence
         shell: pwsh
         run: node ./tests/FlowOutputTests.js
+      - name: Test TC batch import
+        shell: pwsh
+        run: node ./tests/TestCaseImportTests.js
+      - name: Test Android AP state checks
+        shell: pwsh
+        run: python -B ./tests/WifiApTests.py
       - name: Test workbench and TC USB preflight
         shell: pwsh
         run: |
@@ -68,7 +74,7 @@ jobs:
           PACKAGE_VERSION: ${{ steps.package.outputs.version }}
         run: ./tests/UpdatePackageTests.ps1 -Package "./.release/TerminalGrid-Windows-x64-v$env:PACKAGE_VERSION.zip"
       - name: Upload ZIP and SHA-256
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: TerminalGrid-Windows-x64
           path: |
@@ -86,11 +92,11 @@ jobs:
       contents: write
     steps:
       - name: Check out release notes
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       - name: Download the tested package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: TerminalGrid-Windows-x64
           path: release-assets

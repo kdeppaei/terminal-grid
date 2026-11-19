@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '3.18.0',
+    [string]$Version = '3.19.0',
     [switch]$SkipBuild,
     [string]$ApplicationPath = (Join-Path $PSScriptRoot 'TerminalGridIntegrated.exe')
 )
@@ -25,6 +25,7 @@ foreach ($item in $payloadItems) {
 }
 New-Item -ItemType Directory -Path (Join-Path $payloadFolder 'tools') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'tools\nan_verify.py') -Destination (Join-Path $payloadFolder 'tools\nan_verify.py')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'tools\wait_wifi_ap.py') -Destination (Join-Path $payloadFolder 'tools\wait_wifi_ap.py')
 Copy-Item -LiteralPath $applicationFile -Destination (Join-Path $payloadFolder 'TerminalGridIntegrated.exe')
 Copy-Item -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName($applicationFile)) 'TerminalGridNan.exe') -Destination $payloadFolder
 $packageFiles = @(Get-ChildItem -LiteralPath $payloadFolder -File -Recurse | Sort-Object FullName | ForEach-Object {

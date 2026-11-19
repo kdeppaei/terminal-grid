@@ -26,7 +26,7 @@ try {
     if ($manifest.format -ne 'terminal-grid-package' -or @($manifest.files).Count -eq 0) { throw 'Invalid package manifest.' }
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($item in $manifest.files) {
-        if ($item.path -notmatch '^(ui[\/]|source[\/]|tests[\/]|licenses[\/]|examples[\/]|(?:tools[\/]nan_verify\.py|TerminalGridIntegrated\.exe|TerminalGridNan\.exe|Microsoft\.Web\.WebView2\.(?:Core|WinForms)\.dll|WebView2Loader\.dll|LICENSE|THIRD_PARTY_NOTICES\.md|AGENTS\.md|README\.md|RELEASE_NOTES\.md|使用說明\.md|驗證紀錄\.md|SCRCPY_INTEGRATION_SPIKE\.md|預覽\.png|dependencies\.json|Build\.ps1|UpdateAndLaunch\.ps1|UpdateFromPackage\.ps1|Update\.cmd|Package\.ps1|Test\.ps1)$)' -or -not $seen.Add($item.path.Replace('/','\'))) { throw 'Unexpected or duplicate package file.' }
+        if ($item.path -notmatch '^(ui[\/]|source[\/]|tests[\/]|licenses[\/]|examples[\/]|(?:tools[\/](?:nan_verify|wait_wifi_ap)\.py|TerminalGridIntegrated\.exe|TerminalGridNan\.exe|Microsoft\.Web\.WebView2\.(?:Core|WinForms)\.dll|WebView2Loader\.dll|LICENSE|THIRD_PARTY_NOTICES\.md|AGENTS\.md|README\.md|RELEASE_NOTES\.md|使用說明\.md|驗證紀錄\.md|SCRCPY_INTEGRATION_SPIKE\.md|預覽\.png|dependencies\.json|Build\.ps1|UpdateAndLaunch\.ps1|UpdateFromPackage\.ps1|Update\.cmd|Package\.ps1|Test\.ps1)$)' -or -not $seen.Add($item.path.Replace('/','\'))) { throw 'Unexpected or duplicate package file.' }
         $file = Get-UpdatePath $updateSource $item.path
         if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $item.sha256) { throw "Package file failed validation: $($item.path)" }
     }

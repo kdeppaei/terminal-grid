@@ -92,6 +92,9 @@
 .flow-conditions input:not([type]) { flex: 1; }
 .flow-step.flow-failed { border-color: #f1848d; }
 #nanTransferDialog .modal-actions { flex-wrap: wrap; }
+.test-case-queue { max-height: 150px; overflow: auto; margin: 8px 0; }
+.test-case-queue label { display: block; padding: 4px 0; }
+.test-case-queue input, #testCaseLogChecks, #testCaseRecordOutput, #recordFlowOutput { width: auto; }
 #nanIperf2Fields[hidden], #nanPythonField[hidden] { display: none; }
 .pane.batch-selected { outline: 2px solid #7be0d4; outline-offset: -3px; }
 #flowLogPath { overflow-wrap: anywhere; }

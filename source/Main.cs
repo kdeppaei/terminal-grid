@@ -16,7 +16,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.18.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.19.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -296,7 +296,8 @@ namespace TerminalGridIntegrated
                     PaneConfig paneConfig = new PaneConfig { name = tabConfig.name, shell = tabConfig.shell, command = tabConfig.command, cwd = tabConfig.cwd, exe = tabConfig.exe, args = tabConfig.args, batchFile = tabConfig.batchFile };
                     var temp = LayoutConfig.Normalize(new LayoutConfig { slots = new List<PaneConfig> { paneConfig } }); paneConfig = temp.slots[0];
                     int cols = Clamp(IntValue(message, "cols", 80), 2, 500), rows = Clamp(IntValue(message, "rows", 24), 1, 300);
-                    if (type == "restart") RestartSlot(workspaceId, index, tabId, paneConfig, cols, rows); else StartSlot(workspaceId, index, tabId, paneConfig, cols, rows);
+                    if (type == "restart") RestartSlot(workspaceId, index, tabId, paneConfig, cols, rows);
+                    else StartSlot(workspaceId, index, tabId, paneConfig, cols, rows, StringValue(message, "recordRun"), StringValue(message, "recordFolder"));
                 }
                 else if (type == "recordStart" || type == "recordStop")
                 {
@@ -306,12 +307,8 @@ namespace TerminalGridIntegrated
                         if (type == "recordStart")
                         {
                             if (pane.Session == null || pane.Starting || pane.Stopping) throw new InvalidOperationException("請先啟動終端。");
-                            if (pane.Recording == null)
-                            {
-                                string path = Path.Combine(OutputFolder("terminal-logs"), DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".log");
-                                pane.Recording = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-                                pane.RecordingPath = path;
-                            }
+                            if (pane.Recording == null) BeginRecording(pane, StringValue(message, "recordFolder"),
+                                StringValue(message, "timestamp") == "True", StringValue(message, "recordRun"));
                         }
                         else EndRecording(pane);
                     }
@@ -389,12 +386,33 @@ namespace TerminalGridIntegrated
             Send(new { type = "recording", workspaceId = pane.WorkspaceId, slot = pane.Slot, tabId = pane.TabId, generation = pane.Generation,
                 path = pane.RecordingPath, recording = pane.Recording != null, error = error });
         }
+        void BeginRecording(PaneState pane, string folder, bool timestamp, string runId)
+        {
+            if (runId.Length != 0 && !Regex.IsMatch(runId, @"\Arun-[a-z0-9-]{1,70}\z")) throw new ArgumentException("流程錄製識別碼無效。");
+            if (String.IsNullOrWhiteSpace(folder)) folder = OutputFolder("terminal-logs");
+            else if (folder.Length > 4096 || !Path.IsPathRooted(folder) || !Directory.Exists(folder)) throw new DirectoryNotFoundException("找不到所選的 Log 資料夾。");
+            string prefix = runId.Length == 0 ? DateTime.Now.ToString("yyyyMMdd-HHmmss") : runId + "-pane-" + (pane.Slot + 1).ToString("00");
+            string path = Path.Combine(folder, prefix + "-" + Guid.NewGuid().ToString("N") + ".log");
+            if (timestamp)
+            {
+                var writer = new TimestampedLog(path);
+                pane.Recording = writer;
+                pane.WriteRecording = writer.Write;
+            }
+            else
+            {
+                var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+                pane.Recording = stream;
+                pane.WriteRecording = data => stream.Write(data, 0, data.Length);
+            }
+            pane.RecordingPath = path;
+        }
         void EndRecording(PaneState pane)
         {
             if (pane.Recording == null) return;
             try { pane.Recording.Dispose(); }
             catch (IOException ex) { Status("錄製 Log 寫入失敗：" + ex.Message); }
-            finally { pane.Recording = null; }
+            finally { pane.Recording = null; pane.WriteRecording = null; }
         }
         void SendBatchFiles(string requestId, string[] paths)
         {
@@ -433,7 +451,7 @@ namespace TerminalGridIntegrated
             });
         }
         static int Clamp(int value, int minimum, int maximum) { return Math.Max(minimum, Math.Min(maximum, value)); }
-        async void StartSlot(string workspaceId, int index, string tabId, PaneConfig paneConfig, int cols, int rows)
+        async void StartSlot(string workspaceId, int index, string tabId, PaneConfig paneConfig, int cols, int rows, string recordRun = "", string recordFolder = "")
         {
             PaneState pane = GetPane(workspaceId, index, tabId);
             if (pane == null) { Error(workspaceId, index, tabId, "找不到指定工作區或終端分頁。", 0); return; }
@@ -475,17 +493,20 @@ namespace TerminalGridIntegrated
                     ConfigStore.Write(ConfigStore.DefaultPath, config);
                 }
                 ShellCommand command = ShellBuilder.Build(paneConfig); pane.Command = command;
+                if (recordRun.Length != 0) BeginRecording(pane, recordFolder, true, recordRun);
                 await Task.Run(delegate { session.Start(command.Executable, command.Arguments, command.Directory, cols, rows, command.EnvironmentOverrides); });
                 if (closing) { await Task.Run((Action)session.Dispose); ShellBuilder.Clean(command); return; }
                 if (pane.Generation != generation) return;
                 pane.Starting = false;
                 Send(new { type = "started", workspaceId = workspaceId, slot = index, tabId = tabId, pid = session.ProcessId, generation = generation });
+                if (pane.Recording != null) SendRecording(pane, null);
             }
             catch (Exception ex)
             {
                 DisposeLater(session);
                 if (pane.Generation == generation)
                 {
+                    EndRecording(pane);
                     pane.Starting = false; pane.Session = null; pane.ExitSent = true;
                     ShellBuilder.Clean(pane.Command); pane.Command = null;
                     Error(workspaceId, index, tabId, ex.Message, generation);
@@ -539,7 +560,7 @@ namespace TerminalGridIntegrated
                 {
                     if (pane.Recording != null)
                     {
-                        try { pane.Recording.Write(data, 0, data.Length); }
+                        try { pane.WriteRecording(data); }
                         catch (IOException ex) { EndRecording(pane); SendRecording(pane, "錄製 Log 寫入失敗：" + ex.Message); }
                     }
                     buffer.Write(data, 0, data.Length); count += data.Length;

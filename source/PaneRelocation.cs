@@ -15,7 +15,8 @@ namespace TerminalGridIntegrated
         public BlockingCollection<byte[]> Output = new BlockingCollection<byte[]>(256);
         public bool Starting, Stopping, ExitSent;
         public int? ExitCode;
-        public FileStream Recording;
+        public IDisposable Recording;
+        public Action<byte[]> WriteRecording;
         public string RecordingPath;
     }
     internal sealed class PaneAddress

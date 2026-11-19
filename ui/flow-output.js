@@ -2,6 +2,7 @@
   'use strict';
   function create() {
     var decoder = new TextDecoder(), pending = '', lines = [], escape = '', count = 0, truncated = false;
+    var samples = [];
     function feed(bytes) {
       // Keep parser state across UTF-8 and ANSI chunk boundaries.
       for (var char of decoder.decode(bytes, { stream: true })) {
@@ -17,6 +18,11 @@
         } else if (char === '\x1b') {
           escape = 'esc';
         } else if (char === '\n') {
+          var interval = /^\s*\[\s*(SUM|\d+)\]\s+(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s+sec\b.*?\b(\d+(?:\.\d+)?\s+[KMGT]?bits\/sec)\b/i.exec(pending);
+          if (interval && Number(interval[3]) > Number(interval[2]) && !/\b(?:sender|receiver)\s*$/i.test(pending)) {
+            samples.push({ at: Date.now(), stream: interval[1], start: interval[2], end: interval[3], rate: interval[4] });
+            if (samples.length > 1024) samples.shift();
+          }
           lines.push(pending); count += pending.length + 1; pending = '';
         } else if (char === '\b') {
           pending = pending.slice(0, -1);
@@ -32,6 +38,7 @@
     }
     return {
       feed: feed,
+      intervals: function () { return samples.slice(); },
       text: function () { return (truncated ? '[較早輸出已超過終端快取上限]\r\n' : '') + (lines.length ? lines.join('\r\n') + '\r\n' : '') + pending; },
       hasPingReply: function () {
         return lines.some(function (line) { return /^\s*[1-9]\d* bytes from\s+\S+.*\b(?:icmp_)?seq[= ]\d+/i.test(line); });

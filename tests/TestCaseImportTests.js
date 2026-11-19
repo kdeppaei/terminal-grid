@@ -1,0 +1,17 @@
+'use strict';
+const assert = require('node:assert/strict');
+require('../ui/test-cases.js');
+const parse = globalThis.TerminalGridTestCases.parse;
+const cases = parse('\uFEFFcode,title,roles,expected,flow,usbCount,serials\r\nDEMO-1,"A, B","DUT 1\nDUT 2","rate ""ok""",Fixture,2,"USB1,USB2"\r\nDEMO-2,Y,,,,0,', [], [{ id: 'f', name: 'Fixture' }]);
+assert.equal(cases[0].title, 'A, B');
+assert.equal(cases[0].notes, '裝置角色\nDUT 1\nDUT 2\n\n驗收條件\nrate "ok"');
+assert.equal(cases[0].flowId, 'f');
+assert.equal(cases[0].serials, 'USB1, USB2');
+assert.equal(cases[1].usbCount, 0);
+assert.equal(parse('code\ttitle\tfeasibility\nDEMO-3\tNAN\texternal', [], [])[0].feasibility, 'external');
+assert.throws(() => parse('code,title\nDEMO-1,Q\ndemo-1,W', [], []), /重複/);
+assert.throws(() => parse('code,title\nDEMO-1,Q', cases, []), /重複/);
+assert.throws(() => parse('code,title,flow\nDEMO-1,Q,Unknown', [], []), /唯一/);
+assert.throws(() => parse('code,title,usbCount\nDEMO-1,Q,17', [], []), /0–16/);
+assert.throws(() => parse('code,title\nDEMO-1,"Q', [], []), /引號/);
+console.log('TC import: CSV, TSV, multiline notes, flow binding, conflicts and validation passed.');

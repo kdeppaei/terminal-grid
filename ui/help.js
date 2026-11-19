@@ -1,9 +1,12 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.18.0', updated: '2026-11-20',
+    version: '3.19.0', updated: '2026-11-20',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['批次續跑與收證', '本機測項可預覽匯入 UTF-8 CSV 或 TSV。勾選測項後按順序預檢、預覽並執行；失敗或取消時停止。可在每題前後加入手機 Log 提示，為各終端指定同一個資料夾並各自保存逐行時間戳 Log。'],
+        ['流量中操作', '在 NAN 精靈填入 iperf 傳輸中的操作，第一筆區間輸出到達後依提示按開始與完成。流程記錄操作前、中、後收到的樣本；傳輸提早結束會停止這個檢查點。'],
+        ['AP 狀態檢查', '隨包 tools/wait_wifi_ap.py 檢查指定手機的連線或斷線狀態。可選用本機測試腳本切換 AP，或手動切換後由流程等候成功。'],
         ['本機測項（TC）', '從「自動化」開啟本機測項，貼上純文字敘述與驗收條件，再連結已儲存流程。指定最少 USB 台數或必要序號時，預檢會以 ADB 能辨識為 USB 的已授權裝置核對。陳述與分類儲存在本機設定，執行前仍會預覽流程。'],
         ['Ping 成功後選擇傳輸', 'NAN／NDP 精靈預設收到本次 DUT2 的 IPv6 Ping 回覆後，才顯示 iperf3、iperf 2 與 Quick Share。預設 1.3 GB（1,300,000,000 bytes）。iperf 選項會啟動 DUT1 Server，確認監聽後從 DUT2 傳輸，完成時停止該 Server。Quick Share 請在手機選檔並確認收件。'],
         ['Python 雙機驗證', '精靈可勾選「先執行 Python 雙機驗證」。指定 Python 3.9 以上的執行檔，或留空使用 PATH。GUI 會呼叫隨包附上的 tools/nan_verify.py，讀取兩端 Aware 介面並由 DUT2 發出兩個 Ping 封包。'],

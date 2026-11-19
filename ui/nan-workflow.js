@@ -51,6 +51,8 @@
     var beforeNdp = (v.beforeNdp || '').trim();
     var beforeTransfer = (v.beforeTransfer || '').trim();
     var afterTransfer = (v.afterTransfer || '').trim();
+    var duringTransfer = (v.duringTransfer || '').trim();
+    if (duringTransfer && v.tool === 'share') throw Error('傳輸中檢查點需要 iperf。');
     function addPreparation(steps) {
       if (beforeStart) steps.push(pause('啟動 Wi-Fi Aware 前\n' + beforeStart));
       if (choose || beforeNdp) {
@@ -65,9 +67,16 @@
     steps.push(start(3));
     if (choose || beforeTransfer) steps.push(waitForPing());
     if (beforeTransfer) steps.push(pause('傳輸前\n' + beforeTransfer));
-    if (choose) steps.push({ action: 'nanTransfer', slot: 3, tabId: 'nan-ping', text: v.amount });
+    if (choose) {
+      var transfer = { action: 'nanTransfer', slot: 3, tabId: 'nan-ping', text: v.amount };
+      if (duringTransfer) transfer.duringTransfer = duringTransfer;
+      steps.push(transfer);
+    }
     if (v.tool === 'iperf3' || v.tool === 'iperf') steps.push(start(2), pause('確認第 04 格 ping6 有回覆，且第 03 格 server 正常監聽，再按「繼續」啟動 ' + v.amount + ' 流量。若出錯先停止流程；可關閉此視窗後修正設定／重新啟動該格。'), start(4),
       { action: 'exit', slot: 4, tabId: 'nan-traffic', timeoutMs: 600000, retries: 0 });
+    if (duringTransfer && (v.tool === 'iperf3' || v.tool === 'iperf')) {
+      steps.splice(steps.length - 1, 0, { action: 'trafficPause', slot: 4, tabId: 'nan-traffic', text: duringTransfer });
+    }
     if (v.tool === 'share') steps.push(pause('Ping 已啟動。請確認第 04 格有回覆，再透過 scrcpy 操作 Quick Share 傳送檔案。確認接收完成後按「繼續」。Ping 會持續；可在第 04 格停止。'));
     if (afterTransfer) steps.push(pause('傳輸完成後\n' + afterTransfer));
     var stopTests = [stop(3), stop(2), stop(4)];

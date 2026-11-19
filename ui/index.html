@@ -136,6 +136,17 @@
           <label class="field">指定 USB 序號（選填）<input id="testCaseSerials" maxlength="2048" placeholder="多台以逗號分隔"></label>
         </div>
         <label class="field">ADB 資料夾（留空使用預設位置）<div class="folder-input-row"><input id="testCaseFolder" maxlength="4096" placeholder="包含 adb.exe 的資料夾"><button id="testCaseBrowse" type="button" class="button">選資料夾…</button></div></label>
+        <details>
+          <summary>批次匯入與續跑</summary>
+          <label class="field">本機 CSV／TSV<textarea id="testCaseImportText" rows="4" placeholder="必填欄位 code,title；可加 roles,prerequisites,expected,notes,feasibility,usbCount,serials"></textarea></label>
+          <div class="folder-input-row"><input id="testCaseImportFile" type="file" accept=".csv,.tsv,.txt" aria-label="本機 CSV／TSV 檔案"><button id="importTestCases" type="button" class="button">預覽匯入</button></div>
+          <p class="help-note">依勾選順序執行。每題會重新預檢及預覽，失敗或取消即停止。</p>
+          <div id="testCaseQueue" class="test-case-queue" role="group" aria-label="勾選要續跑的測項"></div>
+          <label class="field"><span><input type="checkbox" id="testCaseLogChecks"> 每題前後顯示手機 Log 操作提示</span></label>
+          <label class="field"><span><input type="checkbox" id="testCaseRecordOutput" checked> 每題為各終端保存逐行時間戳 Log</span></label>
+          <div class="folder-input-row"><button id="pickCaseRecordingFolder" type="button" class="button">選 Log 資料夾…</button><span id="caseRecordingFolder" class="help-note">本機 terminal-logs</span></div>
+          <button id="runTestCaseQueue" type="button" class="button">執行選取測項</button>
+        </details>
         <p id="testCaseStatus" class="help-note" role="status"></p>
       </div>
       <div class="modal-actions">
@@ -150,6 +161,7 @@
     <div class="modal-content">
       <p>從 DUT2 傳到 DUT1，目標資料量 <strong id="nanTransferAmount"></strong></p>
       <p class="help-note">iperf 會啟動雙端測試。Quick Share 請在手機選擇對應大小的測試檔。</p>
+      <p id="nanTransferLiveHint" class="help-note" hidden>本流程有傳輸中的人工檢查點，請選 iperf。</p>
     </div>
     <div class="modal-actions">
       <button type="button" class="button quiet" data-nan-transfer="" autofocus>結束本次流程</button>
@@ -186,6 +198,7 @@
         <label class="field">啟動 Wi-Fi Aware 前<textarea id="nanBeforeStart" rows="3" maxlength="4000" placeholder="例如核對兩台裝置的連線狀態及測試環境"></textarea></label>
         <label class="field">建立 NDP 前<textarea id="nanBeforeNdp" rows="3" maxlength="4000" placeholder="例如確認兩台裝置已套用測試所需設定"></textarea></label>
         <label class="field">Ping 成功後、傳輸前<textarea id="nanBeforeTransfer" rows="3" maxlength="4000" placeholder="例如確認兩端的連線事件已出現並開始記錄"></textarea></label>
+        <label class="field">iperf 傳輸中<textarea id="nanDuringTransfer" rows="3" maxlength="4000" placeholder="例如切換設定。收到第一筆吞吐資料後會提示操作。"></textarea></label>
         <label class="field">傳輸完成後<textarea id="nanAfterTransfer" rows="3" maxlength="4000" placeholder="例如核對本輪接收端紀錄及吞吐量"></textarea></label>
         <p class="help-note">檢查點會寫入流程和匯出的 .tgridflow。請依內容決定分享範圍。</p>
       </details>
@@ -237,6 +250,7 @@
     <div class="modal-actions"><button id="undoPaneButton" class="button">復原上一次操作</button></div>
   </dialog>
   <script src="flow-output.js"></script>
+  <script src="test-cases.js"></script>
   <dialog id="androidAppsDialog" class="modal" aria-labelledby="androidAppsTitle">
     <div class="modal-heading"><h2 id="androidAppsTitle">手機控制／scrcpy</h2><button type="button" class="icon-button" data-close="androidAppsDialog" aria-label="關閉手機控制">×</button></div>
     <div class="modal-content">
