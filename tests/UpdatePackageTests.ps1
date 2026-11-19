@@ -14,7 +14,7 @@ $oldUi = Join-Path $target 'ui\app.js'
 $layout = Join-Path $profile 'layout.json'
 $extra = Join-Path $target 'my-personal.tgridcmd'
 $preference = Join-Path $profile 'WebView2\preferences.fixture'
-[IO.File]::WriteAllText($layout, '{"workspaces":[{"name":"keep workspace"}],"commandPacks":[{"name":"keep commands"}],"automations":[{"name":"keep flow"}]}')
+[IO.File]::WriteAllText($layout, '{"workspaces":[{"name":"keep workspace"}],"commandPacks":[{"name":"keep commands"}],"automations":[{"name":"keep flow"}],"testCases":[{"code":"DEMO-01","notes":"keep local test notes","usbCount":2}]}')
 [IO.File]::WriteAllText($extra, 'PERSONAL_FILE')
 [IO.File]::WriteAllText($preference, 'KEEP_UI_PREFERENCES')
 $before = (Get-FileHash -LiteralPath $layout).Hash
@@ -24,7 +24,7 @@ try {
     $env:TERMINALGRID_DATA_DIR = $profile
     & (Join-Path $source 'UpdateFromPackage.ps1') -TargetDirectory $target -NoLaunch
     Assert-Update ((Get-FileHash -LiteralPath $oldUi).Hash -eq (Get-FileHash -LiteralPath (Join-Path $source 'ui\app.js')).Hash) 'application files replaced'
-    Assert-Update (((Get-FileHash -LiteralPath $layout).Hash -eq $before) -and (Get-Content -LiteralPath $extra -Raw) -eq 'PERSONAL_FILE' -and (Get-Content -LiteralPath $preference -Raw) -eq 'KEEP_UI_PREFERENCES') 'workspace, commands, flows, preferences and extra files preserved'
+    Assert-Update (((Get-FileHash -LiteralPath $layout).Hash -eq $before) -and (Get-Content -LiteralPath $extra -Raw) -eq 'PERSONAL_FILE' -and (Get-Content -LiteralPath $preference -Raw) -eq 'KEEP_UI_PREFERENCES') 'workspace, commands, flows, local test cases, preferences and extra files preserved'
     Assert-Update (@(Get-ChildItem -LiteralPath (Join-Path $profile 'backups') -File).Count -eq 1) 'configuration backed up before update'
     Assert-Update (@(Get-ChildItem -LiteralPath (Join-Path $target '.updates') -File -Recurse | Where-Object { $_.Name -eq 'app.js' -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'OLD_APPLICATION' }).Count -eq 1) 'previous application files backed up'
     [IO.File]::WriteAllText($oldUi, 'ROLLBACK_EXPECTED')

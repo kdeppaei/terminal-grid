@@ -1,4 +1,4 @@
-name: Windows build and test
+name: Windows CI and release
 
 on:
   push:
@@ -12,9 +12,13 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Build application
         shell: pwsh
         run: ./Build.ps1
@@ -39,22 +43,71 @@ jobs:
       - name: Test output matching and iperf evidence
         shell: pwsh
         run: node ./tests/FlowOutputTests.js
-      - name: Package Windows release
+      - name: Test workbench and TC USB preflight
         shell: pwsh
-        run: ./Package.ps1 -SkipBuild
+        run: |
+          $testDeps = Join-Path $env:RUNNER_TEMP 'terminal-grid-ui'
+          npm install --prefix $testDeps --ignore-scripts --no-audit --no-fund --package-lock=false playwright@1.62.1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install Playwright.' }
+          $env:NODE_PATH = Join-Path $testDeps 'node_modules'
+          node ./tests/WorkbenchUiTests.js
+      - name: Package Windows release
+        id: package
+        shell: pwsh
+        run: |
+          $version = (Get-Item ./TerminalGridIntegrated.exe).VersionInfo.FileVersion -replace '\.0$', ''
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and application versions differ.' }
+          ./Package.ps1 -Version $version -SkipBuild
+          "version=$version" >> $env:GITHUB_OUTPUT
       - name: Check versioned in-app help
         shell: pwsh
         run: node ./tests/ReleaseHelpTests.js
       - name: Test package update and data preservation
         shell: pwsh
-        run: ./tests/UpdatePackageTests.ps1 -Package (Get-ChildItem .release/*.zip | Select-Object -First 1).FullName
+        env:
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: ./tests/UpdatePackageTests.ps1 -Package "./.release/TerminalGrid-Windows-x64-v$env:PACKAGE_VERSION.zip"
       - name: Upload ZIP and SHA-256
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: TerminalGrid-Windows-x64
           path: |
-            .release/*.zip
-            .release/*.sha256
+            .release/TerminalGrid-Windows-x64-v${{ steps.package.outputs.version }}.zip
+            .release/TerminalGrid-Windows-x64-v${{ steps.package.outputs.version }}.zip.sha256
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Download the tested package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: TerminalGrid-Windows-x64
+          path: release-assets
+      - name: Verify checksum and publish tagged release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $name = "TerminalGrid-Windows-x64-v$env:PACKAGE_VERSION.zip"
+          $zip = Join-Path release-assets $name
+          $checksum = "$zip.sha256"
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ((Get-Content -LiteralPath $checksum -Raw).Trim() -cne "$hash  $name") { throw 'Release checksum mismatch.' }
+          $notes = (Get-Content -LiteralPath RELEASE_NOTES.md -Raw) -split '(?m)^## ', 2
+          if (-not $notes[0].StartsWith("# Terminal Grid $env:PACKAGE_VERSION")) { throw 'Release notes version mismatch.' }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'terminal-grid-release-notes.md'
+          [IO.File]::WriteAllText($notesPath, $notes[0].TrimEnd())
+          gh release create $env:GITHUB_REF_NAME $zip $checksum --verify-tag --title "Terminal Grid $env:PACKAGE_VERSION" --notes-file $notesPath
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }

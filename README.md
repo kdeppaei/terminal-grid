@@ -4,6 +4,10 @@
 
 **3.17.0** NAN／NDP 精靈在 IPv6 Ping 成功後提供 iperf3、iperf 2 或 Quick Share 選擇，預設 1.3 GB（1,300,000,000 bytes）。ZIP 內含可由精靈呼叫的 Python 雙機驗證器。
 
+**3.18.0**「自動化 → 本機測項（TC）」可把純文字驗收條件與已儲存的流程連在一起。指定 USB 台數或序號後，預檢會先確認 ADB 回報的已授權 USB 裝置。測項清單隨本機設定保存。
+
+從「更多 → 手機控制／scrcpy」選擇已授權裝置後，可直接開啟鏡像或喚醒螢幕。工具可使用含 adb.exe 和 scrcpy.exe 的資料夾，或使用已加入 PATH 的程式。
+
 複製使用設定中的啟動資料夾，移動保留原程序目前的目錄。同工作區移動會更新流程目標；被流程引用的終端需先調整流程，才能跨工作區移動。
 
 **保留資料更新**：下載新版 ZIP，先完整解壓到另一資料夾，執行新版的 `Update.cmd`，選原本 `TerminalGridIntegrated.exe` 所在資料夾。更新會驗證套件、備份配置與被替換的程式檔，關閉舊版、覆蓋後重開；失敗則還原本次替換。原本工作區、自建指令、流程與介面偏好沿用本機資料目錄，其他個人檔案不刪除。也可先關閉舊版，手動完整覆蓋原程式資料夾。更新前請保存重要測試 Log，執行中程序與終端畫面不會跨重開恢復。
@@ -37,9 +41,9 @@
 
 3.9 新增原生「裝置檔案 · cfg／Logs」窗口，從「更多」或「指令庫」開啟。可讀取、搜尋與編輯 `/vendor/firmware/wifi.cfg`，檔名與路徑可改（含空格）；可載入 RD 的本機設定檔、另存草稿，備份後寫回並讀回驗證。傳輸頁提供 `/sdcard/log/`、`/data/debuglogger`、`/data/local/tmp/` 快捷路徑、Pull、Push 與目錄查詢。每次 Pull 新建序號／時間資料夾，避免覆蓋先前測試紀錄。Default 現有 12 包、99 條指令。
 
-3.8 新增「自動化 → NAN／NDP 雙手機」：設定 DUT1／DUT2 後建立六格工作區與可修改、匯出的流程。開啟兩台 scrcpy → 等待 APK 建立 NAN／NDP → 按繼續即時查 DUT1 Aware IPv6 並在 DUT2 持續 ping6 → 確認 server／ping 後送 iperf3 或 iperf 2 流量。預設 `-f m -n 1300M`，可改手機工具路徑、Port、兩端介面與傳輸量；Quick Share 模式由使用者手動傳檔。11 個 Default 分類共 89 指令包含 NAN 專用包。
+3.8 新增「自動化 → NAN／NDP 雙手機」：設定 DUT1／DUT2 後建立六格工作區與可修改、匯出的流程。開啟兩台 scrcpy → 等待使用者建立 NAN／NDP → 按繼續即時查 DUT1 Aware IPv6 並在 DUT2 持續 ping6 → 確認 server／ping 後送 iperf3 或 iperf 2 流量。預設 `-f m -n 1300M`，可改手機工具路徑、Port、兩端介面與傳輸量；Quick Share 模式由使用者手動傳檔。11 個 Default 分類共 89 指令包含 NAN 專用包。
 
-NAN 功能隨 GUI 附帶 `TerminalGridNan.exe`，需保留在主程式旁。它在指定手機查介面，使用 DUT2 的 `%aware_data0` 等 Android scope，透過獨立終端前景程序顯示 Ping／Server／Traffic。啟動時重新取 IP，無固定舊 IP；無位址或多個候選則顯示原因。ADB、scrcpy 與手機 iperf 仍需先安裝。實機 NAN／Quick Share 行為需依手機、APK 與韌體驗收。
+NAN 功能隨 GUI 附帶 `TerminalGridNan.exe`，需保留在主程式旁。它在指定手機查介面，使用 DUT2 的 `%aware_data0` 等 Android scope，透過獨立終端前景程序顯示 Ping／Server／Traffic。啟動時重新取 IP，無固定舊 IP；無位址或多個候選則顯示原因。ADB、scrcpy 與手機 iperf 仍需先安裝。實機 NAN／Quick Share 行為需依手機、測試工具與韌體驗收。
 
 3.7.2 插入 Ping／Ping -6 範本時可選擇自動偵測的 ADB 裝置與 IP：ADB 已授權在線裝置、本機啟用中的網卡、ADB TCP/IP 裝置位址及暫存區 IP，並保留手動輸入／重新偵測。IPv6 link-local 會自動補 Windows 數字介面 scope（例如 `%12`），選單同時顯示 WLAN／LAN 名稱。`-B` 本機綁定位址獨立選擇。本機網卡不代表遠端 server 可達，USB 裝置的網路 IP 需先查詢並暫存或手動輸入。偵測只列舉網卡與 `adb devices -l`，不掃描網段。
 

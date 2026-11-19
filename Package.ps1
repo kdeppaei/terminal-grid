@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '3.17.0',
+    [string]$Version = '3.18.0',
     [switch]$SkipBuild,
     [string]$ApplicationPath = (Join-Path $PSScriptRoot 'TerminalGridIntegrated.exe')
 )
@@ -27,7 +27,13 @@ New-Item -ItemType Directory -Path (Join-Path $payloadFolder 'tools') -Force | O
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'tools\nan_verify.py') -Destination (Join-Path $payloadFolder 'tools\nan_verify.py')
 Copy-Item -LiteralPath $applicationFile -Destination (Join-Path $payloadFolder 'TerminalGridIntegrated.exe')
 Copy-Item -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName($applicationFile)) 'TerminalGridNan.exe') -Destination $payloadFolder
-$packageFiles = @(Get-ChildItem -LiteralPath $payloadFolder -File -Recurse | ForEach-Object { [ordered]@{ path=$_.FullName.Substring($payloadFolder.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
+$packageFiles = @(Get-ChildItem -LiteralPath $payloadFolder -File -Recurse | Sort-Object FullName | ForEach-Object {
+    $relativePath = $_.FullName.Substring($payloadFolder.Length + 1).Replace('\','/')
+    if ($relativePath -match '(^|/)(WebView2|startup|backups|evidence|captures|runs|terminal-logs|layout\.json|\.env[^/]*)(/|$)|\.(apk|apks|pcap|pcapng|log|tgridflow|tgridcmd)$') {
+        throw 'Package includes a private file type or user data directory.'
+    }
+    [ordered]@{ path=$relativePath; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+})
 $manifest = [ordered]@{ format='terminal-grid-package'; version=$Version; files=$packageFiles } | ConvertTo-Json -Depth 4
 [IO.File]::WriteAllText((Join-Path $payloadFolder 'package-files.json'), $manifest, [Text.UTF8Encoding]::new($false))
 $packageName = "TerminalGrid-Windows-x64-v$Version.zip"

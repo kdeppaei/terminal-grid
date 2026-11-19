@@ -24,7 +24,7 @@
           <label><input id="smartCompletion" type="checkbox" checked> 智慧指令建議</label>
           <button id="clearCompletionHistory" type="button" class="button">清除本次補全歷史</button>
           <button id="adbLogsButton" type="button" class="button">ADB 抓 Log…</button>
-          <button id="androidAppsButton" type="button" class="button">開啟手機 App／SysDump…</button>
+          <button id="androidAppsButton" type="button" class="button">手機控制／scrcpy…</button>
           <label for="rightClickMode">終端右鍵操作</label><select id="rightClickMode"><option value="quick">快速複製／貼上</option><option value="menu">開啟功能選單</option></select>
           <p>快速模式：有選取就複製，無選取就貼上。Shift＋右鍵或每格 ⋯ 仍可開啟選單。</p>
           <div class="options-divider"></div><button id="importButton" class="button quiet">匯入配置</button><button id="exportButton" class="button quiet">匯出配置</button><button id="helpButton" class="button quiet">使用說明</button>
@@ -113,6 +113,38 @@
 
   <dialog id="flowPauseDialog" class="modal compact-modal" aria-labelledby="flowPauseTitle"><div class="modal-heading"><div><span class="eyebrow">USER ACTION REQUIRED</span><h2 id="flowPauseTitle">流程等待操作</h2></div></div><div class="modal-content"><p id="flowPauseMessage" class="pause-message"></p><p class="help-note">按「繼續」才會執行後續步驟。「停止流程」只會取消後續自動化，不會關閉已啟動的終端。</p></div><div class="modal-actions"><button id="stopPausedFlowButton" type="button" class="button quiet">停止流程</button><span class="toolbar-spacer"></span><button id="continuePausedFlowButton" type="button" class="button primary">繼續</button></div></dialog>
 
+  <dialog id="testCaseDialog" class="modal" aria-labelledby="testCaseTitle">
+    <form id="testCaseForm">
+      <div class="modal-heading"><h2 id="testCaseTitle">本機測項（TC）</h2><button type="button" class="icon-button" data-close="testCaseDialog" aria-label="關閉測項">×</button></div>
+      <div class="modal-content">
+        <div class="flow-toolbar">
+          <input id="testCaseFilter" aria-label="搜尋測項" placeholder="輸入 TC 編號或名稱">
+          <select id="testCaseSelect" aria-label="已儲存測項"></select>
+          <button id="newTestCase" type="button" class="button">新增</button>
+        </div>
+        <div class="form-two">
+          <label class="field">TC 編號<input id="testCaseCode" maxlength="32" required></label>
+          <label class="field">名稱<input id="testCaseName" maxlength="120" required></label>
+        </div>
+        <div class="form-two">
+          <label class="field">自動化可行性<select id="testCaseFeasibility"><option value="pending">待釐清</option><option value="auto">可全自動</option><option value="assisted">需人工互動</option><option value="external">依賴外部設備</option></select></label>
+          <label class="field">連結已儲存流程<select id="testCaseFlow"></select></label>
+        </div>
+        <label class="field">測項敘述、步驟與驗收條件<textarea id="testCaseNotes" rows="4" maxlength="4000" placeholder="可貼上 Wiki 的純文字敘述，儲存在本機設定"></textarea></label>
+        <div class="form-two">
+          <label class="field">最少 USB 裝置數<input id="testCaseUsb" type="number" min="0" max="16" value="0" required></label>
+          <label class="field">指定 USB 序號（選填）<input id="testCaseSerials" maxlength="2048" placeholder="多台以逗號分隔"></label>
+        </div>
+        <label class="field">ADB 資料夾（留空使用預設位置）<div class="folder-input-row"><input id="testCaseFolder" maxlength="4096" placeholder="包含 adb.exe 的資料夾"><button id="testCaseBrowse" type="button" class="button">選資料夾…</button></div></label>
+        <p id="testCaseStatus" class="help-note" role="status"></p>
+      </div>
+      <div class="modal-actions">
+        <button id="deleteTestCase" type="button" class="button quiet">刪除測項</button>
+        <button type="submit" class="button">儲存測項</button>
+        <button id="runTestCase" type="button" class="button primary">預檢並執行</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="nanTransferDialog" class="modal compact-modal" aria-labelledby="nanTransferTitle">
     <div class="modal-heading"><h2 id="nanTransferTitle">Ping 成功 · 選擇傳輸測試</h2></div>
     <div class="modal-content">
@@ -136,10 +168,12 @@
     <div class="modal-heading"><div><span class="eyebrow">WI-FI AWARE</span><h2 id="nanTitle">NAN／NDP 雙手機流程</h2></div><button type="button" class="icon-button" data-close="nanDialog" aria-label="關閉 NAN 設定">×</button></div>
     <div class="modal-content">
       <p class="help-note">依提示在兩台手機建立 NDP。DUT2 收到 IPv6 Ping 回覆後，即可選擇傳輸測試。</p>
+      <label class="field">ADB／scrcpy 資料夾（已有 adb 在 PATH 可留空）<div class="folder-input-row"><input id="nanFolder" placeholder="選擇含 adb.exe 的資料夾"><button id="nanBrowse" type="button" class="button">選資料夾…</button></div></label>
       <button id="nanDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="nanStatus" role="status" class="help-note"></p>
       <div class="form-two"><label class="field">DUT1 · Server<input id="nanDut1" list="nanDevices" required placeholder="序號"></label><label class="field">DUT2 · Client<input id="nanDut2" list="nanDevices" required placeholder="另一台序號"></label></div><datalist id="nanDevices"></datalist>
       <div class="form-two"><label class="field">DUT1 查詢介面<input id="nanIf1" list="nanInterfaces" value="auto" required></label><label class="field">DUT2 發送介面（scope）<input id="nanIf2" list="nanInterfaces" value="auto" required></label></div>
       <datalist id="nanInterfaces"><option value="auto">自動偵測（建立 NDP 後）</option></datalist>
+      <label><input id="nanReuseMirrors" type="checkbox"> 使用已開啟的 scrcpy 視窗</label>
       <label><input id="nanRecovery" type="checkbox"> 加入 NDP 中斷、USB 重插與重建驗收</label>
       <div class="form-two"><label class="field">測試模式<select id="nanTool"><option value="choose">Ping 成功後選擇</option><option value="iperf3">固定 iperf3</option><option value="iperf">固定 iperf 2</option><option value="share">固定 Quick Share</option></select></label><label class="field"><span id="nanAmountLabel">傳輸量（bytes）</span><input id="nanAmount" value="1300000000" required></label></div>
       <div class="form-two"><label class="field"><span id="nanBin1Label">DUT1 iperf3 名稱／Android 路徑</span><input id="nanBin1" value="iperf3" required></label><label class="field"><span id="nanBin2Label">DUT2 iperf3 名稱／Android 路徑</span><input id="nanBin2" value="iperf3" required></label></div>
@@ -147,7 +181,14 @@
       <label class="field"><span id="nanPortLabel">iperf3 Port（iperf 2 使用 5001）</span><input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
       <label id="nanPythonOption"><input id="nanUsePython" type="checkbox"> 先執行 Python 雙機驗證（需 Python 3.9+）</label>
       <label class="field" id="nanPythonField" hidden>Python 執行檔路徑（留空使用 PATH）<input id="nanPythonPath" placeholder="C:\Tools\Python\python.exe"></label>
-      <label class="field">本機 adb／scrcpy 資料夾（留空使用 PATH）<div class="folder-input-row"><input id="nanFolder" placeholder="例如 D:\Tools\scrcpy"><button id="nanBrowse" type="button" class="button">選資料夾…</button></div></label>
+      <details>
+        <summary>自訂測項的人工檢查點</summary>
+        <label class="field">啟動 Wi-Fi Aware 前<textarea id="nanBeforeStart" rows="3" maxlength="4000" placeholder="例如核對兩台裝置的連線狀態及測試環境"></textarea></label>
+        <label class="field">建立 NDP 前<textarea id="nanBeforeNdp" rows="3" maxlength="4000" placeholder="例如確認兩台裝置已套用測試所需設定"></textarea></label>
+        <label class="field">Ping 成功後、傳輸前<textarea id="nanBeforeTransfer" rows="3" maxlength="4000" placeholder="例如確認兩端的連線事件已出現並開始記錄"></textarea></label>
+        <label class="field">傳輸完成後<textarea id="nanAfterTransfer" rows="3" maxlength="4000" placeholder="例如核對本輪接收端紀錄及吞吐量"></textarea></label>
+        <p class="help-note">檢查點會寫入流程和匯出的 .tgridflow。請依內容決定分享範圍。</p>
+      </details>
       <p class="help-note">介面填 auto 時，建立 NDP 後偵測兩端 Wi-Fi Aware 介面。每次重啟 Ping／Traffic 都重新查 DUT1 IPv6。% 後使用 DUT2 發送介面。若有多個候選，請手動指定。手機兩端需已有相同系列的 iperf。</p>
       <p class="help-note">Ping 分頁會持續保活，可按 Ctrl+C 停止。Quick Share 由手機操作，實際傳輸路徑依手機決定。</p>
     </div><div class="modal-actions"><button type="button" class="button quiet" data-close="nanDialog">取消</button><button type="submit" class="button primary">建立工作區與流程</button></div>
@@ -197,10 +238,11 @@
   </dialog>
   <script src="flow-output.js"></script>
   <dialog id="androidAppsDialog" class="modal" aria-labelledby="androidAppsTitle">
-    <div class="modal-heading"><h2 id="androidAppsTitle">開啟手機 App</h2><button type="button" class="icon-button" data-close="androidAppsDialog" aria-label="關閉手機 App">×</button></div>
+    <div class="modal-heading"><h2 id="androidAppsTitle">手機控制／scrcpy</h2><button type="button" class="icon-button" data-close="androidAppsDialog" aria-label="關閉手機控制">×</button></div>
     <div class="modal-content">
-      <div class="folder-input-row"><button id="refreshAndroidDevices" type="button" class="button">重新偵測裝置</button><button id="pickAppsAdb" type="button" class="button">選 ADB 資料夾…</button></div>
+      <div class="folder-input-row"><button id="refreshAndroidDevices" type="button" class="button">重新偵測裝置</button><button id="pickAppsAdb" type="button" class="button">選 ADB／scrcpy 資料夾…</button></div>
       <label class="field">ADB 裝置<select id="androidDevice"></select></label>
+      <div class="folder-input-row"><button id="openAndroidMirror" type="button" class="button" disabled>開啟 scrcpy</button><button id="wakeAndroidScreen" type="button" class="button" disabled>喚醒螢幕</button></div>
       <label class="field">搜尋套件或 Activity<input id="androidAppSearch" placeholder="例如 com.android.settings"></label>
       <label class="field">可開啟的 App<select id="androidApp" size="7"></select></label>
       <p id="androidAppsStatus" class="help-note" role="status"></p>

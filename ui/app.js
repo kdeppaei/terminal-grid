@@ -13,6 +13,7 @@
   var commandDraft = null, draftTarget = null, focusedEditor = null;
   var rightClickMode = 'quick';
   var nanDiscoveryId = null, nanPathId = null;
+  var testCaseId = '', testCaseCheck = null, testCasePathId = null, testCaseDirty = false;
   var batchRequests = {};
   var transferPending = null, paneClipboard = null, paneDrag = null;
   var paneDragType = 'application/x-terminalgrid-pane';
@@ -28,7 +29,7 @@
     var state = focused ? focused.state : activeState(activeView, 0);
     nanDiscoveryId = uid('nan-devices');
     $('nanStatus').textContent = '正在偵測已授權的 ADB 手機…';
-    send({ type: 'discoverCommandTargets', requestId: nanDiscoveryId, workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, toolsFolder: $('nanFolder').value, android: true });
+    send({ type: 'discoverCommandTargets', requestId: nanDiscoveryId, workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, toolsFolder: $('nanFolder').value.trim() });
   }
   function openNanDialog() {
     if (flowRunning || flowPreparing) { showToast('請先完成或停止目前流程。'); return; }
@@ -99,7 +100,8 @@
   function requestAndroid(type, extra) {
     var id = uid('adb-app'), serial = $('androidDevice').value;
     appsRequest = { id: id, type: type, serial: serial, sysdump: !!(extra && extra.sysdump) };
-    $('androidAppsStatus').textContent = type === 'androidLaunch' ? '正在開啟…' : '正在偵測…';
+    $('androidAppsStatus').textContent = type === 'androidWake' ? '正在喚醒螢幕…' :
+      type === 'androidLaunch' || type === 'androidMirror' ? '正在開啟…' : '正在偵測…';
     if (!send(Object.assign({ type: type, requestId: id, serial: serial }, extra))) {
       appsRequest = null; $('androidAppsStatus').textContent = '終端引擎尚未就緒。';
     }
@@ -108,6 +110,7 @@
   function updateAndroidButtons() {
     var ready = !!$('androidDevice').value && !appsRequest;
     $('androidSysdump').disabled = !ready;
+    $('openAndroidMirror').disabled = $('wakeAndroidScreen').disabled = !ready;
     $('launchAndroidApp').disabled = !ready || !$('androidApp').value;
     $('androidDevice').disabled = !!appsRequest;
   }
@@ -121,7 +124,7 @@
     updateAndroidButtons();
   }
   function discoverAndroidAppsDevices() {
-    if (appsRequest && appsRequest.type === 'androidLaunch') return;
+    if (appsRequest && ['androidLaunch', 'androidMirror', 'androidWake'].includes(appsRequest.type)) return;
     var target = batchTarget(null), state = activeState(target.view, target.slot);
     appComponents = []; appsAdbPath = '';
     $('androidDevice').replaceChildren(new Option('選擇裝置', ''));
@@ -383,7 +386,13 @@
       { id: uid('cmd'), name: 'iperf3 伺服器', description: '在此終端啟動 iperf3 server', command: 'iperf3 -s' },
       { id: uid('cmd'), name: 'iperf3 用戶端', description: '改成伺服器位址後執行', command: 'iperf3 -c 192.168.1.1' }
     ] });
-    return { version: 2, activeWorkspaceId: activeId, workspaces: workspaces, automations: automations, commandPacks: packs };
+    var testCases = (Array.isArray(raw.testCases) ? raw.testCases : []).filter(function (item) { return item && typeof item === 'object'; }).slice(0, 256).map(function (item) {
+      return { id: str(item.id, 64) || uid('case'), code: str(item.code, 32), title: str(item.title, 120),
+        feasibility: ['auto', 'assisted', 'external'].includes(item.feasibility) ? item.feasibility : 'pending',
+        notes: str(item.notes, 4000), flowId: str(item.flowId, 64), usbCount: limitNumber(item.usbCount, 0, 0, 16),
+        serials: str(item.serials, 2048), toolsFolder: str(item.toolsFolder, 4096) };
+    });
+    return { version: 2, activeWorkspaceId: activeId, workspaces: workspaces, automations: automations, commandPacks: packs, testCases: testCases };
   }
   function getWorkspace(id) { return appConfig.workspaces.find(function (w) { return w.id === id; }) || null; }
   function getView(id) { return views.find(function (v) { return v.config.id === id; }) || null; }
@@ -1468,10 +1477,26 @@
         appComponents = Array.isArray(message.components) ? message.components : [];
         renderAndroidApps();
         $('androidAppsStatus').textContent = appComponents.length ? '找到 ' + appComponents.length + ' 個啟動項目。' : '找不到可啟動的 App。';
+      } else if (request.type === 'androidMirror') {
+        $('androidAppsStatus').textContent = message.alreadyOpen ? '這台裝置已有由 Terminal Grid 啟動的 scrcpy 視窗。' : '已啟動 scrcpy，請查看獨立鏡像視窗。';
+      } else if (request.type === 'androidWake') {
+        $('androidAppsStatus').textContent = '已送出喚醒指令。若出現鎖定畫面，請在手機上解鎖。';
       } else $('androidAppsStatus').textContent = request.sysdump
         ? '已開啟撥號器。請查看手機是否進入 SysDump；若只顯示撥號畫面，請清空後手動鍵入 *#9900#。'
         : '手機已接收開啟 App 的指令。';
       updateAndroidButtons();
+      return;
+    }
+    if (message.type === 'commandTargets' && testCaseCheck && message.requestId === testCaseCheck.requestId) {
+      finishTestCaseCheck(message); return;
+    }
+    if (message.type === 'commandPathPicked' && testCasePathId && message.requestId === testCasePathId) {
+      testCasePathId = null;
+      if ($('testCaseDialog').open && !message.cancelled && !message.error) {
+        $('testCaseFolder').value = message.path;
+        $('testCaseFolder').dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (message.error) $('testCaseStatus').textContent = message.error;
       return;
     }
     if (message.type === 'commandTargets' && nanDiscoveryId && message.requestId === nanDiscoveryId) {
@@ -1484,10 +1509,12 @@
       if (devices.length === 2 && !$('nanDut1').value && !$('nanDut2').value) {
         $('nanDut1').value = devices[0].value; $('nanDut2').value = devices[1].value;
       }
-      $('nanInterfaces').replaceChildren(new Option('自動偵測（建立 NDP 後）', 'auto'));
-      var interfaces = Array.from(new Set(nanCandidates.filter(function (c) { return c.kind === 'android' && /^aware[_-]data\d+$/i.test(c.interfaceName); }).map(function (c) { return c.interfaceName; })));
-      interfaces.forEach(function (iface) { $('nanInterfaces').appendChild(new Option(iface, iface)); });
-      $('nanStatus').textContent = message.message || '偵測完成；在 DUT1／DUT2 欄位選擇兩台不同手機。'; return;
+      $('nanStatus').textContent = devices.length
+        ? '找到 ' + devices.length + ' 台已授權手機。請核對 DUT1 與 DUT2 序號。'
+        : !message.adbPath && /找不到 adb\.exe/.test(message.message || '')
+          ? '找不到 adb.exe。請按上方「選資料夾…」，選擇含 adb.exe 的 Platform Tools 或 scrcpy 資料夾。'
+          : message.message || '未找到已授權的手機。請檢查 USB 連線與偵錯授權後重新偵測。';
+      return;
     }
     if (message.type === 'commandPathPicked' && nanPathId && message.requestId === nanPathId) {
       nanPathId = null;
@@ -1631,6 +1658,103 @@
     currentFlowId = select.value || null; renderFlowEditor();
   }
   function currentFlow() { return appConfig.automations.find(function (f) { return f.id === currentFlowId; }) || null; }
+  function selectedTestCase() { return appConfig.testCases.find(function (item) { return item.id === testCaseId; }); }
+  function testCaseSerials(value) { return Array.from(new Set(value.split(/[\s,，]+/).filter(Boolean))); }
+  function updateTestCaseButtons() {
+    var item = selectedTestCase();
+    $('runTestCase').disabled = !item || !appConfig.automations.some(function (f) { return f.id === item.flowId && f.steps.length; }) ||
+      $('testCaseSelect').value !== testCaseId || testCaseDirty || !!testCaseCheck || flowRunning || flowPreparing;
+    $('deleteTestCase').disabled = !item || !!testCaseCheck;
+  }
+  function renderTestCaseList() {
+    var list = $('testCaseSelect'), query = $('testCaseFilter').value.trim().toLowerCase();
+    list.replaceChildren(new Option('選擇測項', ''));
+    appConfig.testCases.filter(function (item) { return (item.code + ' ' + item.title).toLowerCase().includes(query); })
+      .forEach(function (item) { list.add(new Option(item.code + ' · ' + item.title, item.id)); });
+    list.value = testCaseId;
+  }
+  function editTestCase(id) {
+    testCaseId = id; testCaseDirty = false;
+    var item = selectedTestCase() || { usbCount: 0, feasibility: 'pending' };
+    var flowList = $('testCaseFlow');
+    flowList.replaceChildren(new Option('尚未連結流程', ''));
+    appConfig.automations.forEach(function (flow) { flowList.add(new Option(flow.name, flow.id)); });
+    $('testCaseCode').value = item.code || ''; $('testCaseName').value = item.title || '';
+    $('testCaseFeasibility').value = item.feasibility;
+    $('testCaseNotes').value = item.notes || ''; $('testCaseUsb').value = item.usbCount;
+    $('testCaseSerials').value = item.serials || ''; $('testCaseFolder').value = item.toolsFolder || '';
+    flowList.value = item.flowId || '';
+    if (!flowList.value) flowList.value = '';
+    $('testCaseStatus').textContent = item.flowId && !flowList.value ? '原本連結的流程已移除，請重新選擇。' : '';
+    renderTestCaseList(); updateTestCaseButtons();
+  }
+  function openTestCaseDialog() {
+    if (flowRunning || flowPreparing) { showToast('請先完成或停止目前流程。'); return; }
+    $('testCaseFilter').value = '';
+    editTestCase(testCaseId || (appConfig.testCases[0] || {}).id || '');
+    $('testCaseDialog').showModal();
+  }
+  function saveTestCase(event) {
+    event.preventDefault();
+    if (testCaseCheck) return;
+    var current = selectedTestCase(), code = $('testCaseCode').value.trim(), title = $('testCaseName').value.trim();
+    var status = $('testCaseStatus'), serials = testCaseSerials($('testCaseSerials').value);
+    if (!code || !title) { status.textContent = '請輸入測項編號與名稱。'; return; }
+    if (appConfig.testCases.some(function (item) { return item !== current && item.code.toLowerCase() === code.toLowerCase(); })) {
+      status.textContent = '這個 TC 編號已存在。'; return;
+    }
+    if (!current && appConfig.testCases.length >= 256) { status.textContent = '已達 256 個本機測項上限。'; return; }
+    if (serials.length > 16 || serials.some(function (serial) { return !/^[A-Za-z0-9_.:\[\]%-]{1,128}$/.test(serial); })) {
+      status.textContent = '請輸入有效的序號，每個序號以逗號或空白分隔。'; return;
+    }
+    var item = current || { id: uid('case') };
+    Object.assign(item, { code: code, title: title, feasibility: $('testCaseFeasibility').value,
+      notes: $('testCaseNotes').value, flowId: $('testCaseFlow').value, usbCount: Number($('testCaseUsb').value),
+      serials: serials.join(', '), toolsFolder: $('testCaseFolder').value.trim() });
+    if (!current) appConfig.testCases.push(item);
+    $('testCaseFilter').value = '';
+    editTestCase(item.id); queueSave();
+    status.textContent = '測項已保存在本機。';
+  }
+  function launchTestCase(item) {
+    $('testCaseDialog').close();
+    currentFlowId = item.flowId;
+    renderFlowOptions();
+    runFlow(item);
+  }
+  function finishTestCaseCheck(message) {
+    var check = testCaseCheck;
+    clearTimeout(check.timer); testCaseCheck = null; updateTestCaseButtons();
+    if (!$('testCaseDialog').open || check.item.id !== testCaseId || testCaseDirty) return;
+    var usb = new Set((Array.isArray(message.candidates) ? message.candidates : [])
+      .filter(function (candidate) { return candidate.kind === 'device' && candidate.usb === true; })
+      .map(function (candidate) { return candidate.value; }));
+    var missing = testCaseSerials(check.item.serials).filter(function (serial) { return !usb.has(serial); });
+    var status = $('testCaseStatus');
+    if (message.error) { status.textContent = message.error; return; }
+    if (usb.size < check.item.usbCount || missing.length) {
+      status.textContent = 'USB 未就緒。此測項至少需 ' + check.item.usbCount + ' 台，已確認 ' + usb.size + ' 台。' +
+        (missing.length ? ' 未確認的指定序號：' + missing.join('、') + '。' : '') +
+        ' 請接上手機、解鎖並確認 USB 偵錯已授權，再按「預檢並執行」。' +
+        (!message.adbPath && message.message ? '\n' + message.message : '');
+      return;
+    }
+    launchTestCase(check.item);
+  }
+  function checkTestCase() {
+    var item = selectedTestCase();
+    if (!item || $('runTestCase').disabled) return;
+    if (!item.usbCount && !item.serials) { launchTestCase(item); return; }
+    if (!hostReady || !activeView) { $('testCaseStatus').textContent = '偵測需要連上本機 Terminal Grid 主程式。'; return; }
+    var state = activeState(activeView, 0);
+    var requestId = uid('case-usb');
+    testCaseCheck = { requestId: requestId, item: Object.assign({}, item),
+      timer: setTimeout(function () { finishTestCaseCheck({ error: 'USB 偵測逾時，請重試。' }); }, 9000) };
+    $('testCaseStatus').textContent = '正在確認已授權的 USB 裝置…';
+    updateTestCaseButtons();
+    if (!send({ type: 'discoverCommandTargets', requestId: requestId, workspaceId: state.workspaceId, slot: state.slot,
+      tabId: state.tabId, toolsFolder: item.toolsFolder })) finishTestCaseCheck({ error: 'USB 偵測無法啟動，請重試。' });
+  }
   function newFlow() {
     var flow = { id: uid('flow'), name: '新自動化流程', workspaceId: (activeView || { config: appConfig.workspaces[0] }).config.id, steps: [] };
     appConfig.automations.push(flow); currentFlowId = flow.id; renderFlowOptions(); queueSave();
@@ -1660,7 +1784,11 @@
       for (var i = 0; i < MAX_SLOTS; i++) slot.add(new Option(String(i + 1).padStart(2, '0') + ' 格', String(i)));
       slot.value = String(step.slot);
       var tab = document.createElement('select'); tab.className = 'flow-tab flow-target'; fillFlowTabs(tab, workspace, step.slot, step.tabId);
-      var textInput = document.createElement('input'); textInput.className = 'flow-step-text'; textInput.value = step.action === 'wait' ? String(step.delayMs) : (step.text || ''); textInput.placeholder = step.action === 'wait' ? '毫秒（100–30000）' : step.action === 'pause' ? '提示使用者要完成的操作' : '指令內容';
+      var textInput = document.createElement(step.action === 'pause' ? 'textarea' : 'input');
+      textInput.className = 'flow-step-text';
+      textInput.value = step.action === 'wait' ? String(step.delayMs) : (step.text || '');
+      textInput.placeholder = step.action === 'wait' ? '毫秒（100–30000）' : step.action === 'pause' ? '提示使用者要完成的操作' : '指令內容';
+      if (step.action === 'pause') textInput.rows = 2;
       var enterLabel = document.createElement('label'); enterLabel.className = 'flow-enter'; var enter = document.createElement('input'); enter.type = 'checkbox'; enter.checked = step.enter !== false; enterLabel.append(enter, document.createTextNode('Enter'));
       var moveUp = document.createElement('button'); moveUp.type = 'button'; moveUp.className = 'icon-button flow-move'; moveUp.textContent = '↑'; moveUp.title = '上移步驟'; moveUp.disabled = index === 0;
       var moveDown = document.createElement('button'); moveDown.type = 'button'; moveDown.className = 'icon-button flow-move'; moveDown.textContent = '↓'; moveDown.title = '下移步驟'; moveDown.disabled = index === flow.steps.length - 1;
@@ -1920,7 +2048,7 @@
     }
     throw Error('等待' + (step.action === 'exit' ? '終端正常結束' : '輸出「' + step.text + '」') + '逾時。');
   }
-  async function runFlow() {
+  async function runFlow(testCase) {
     var flow = currentFlow(); if (!flow || flowRunning || flowPreparing) return;
     flow = JSON.parse(JSON.stringify(flow));
     var workspace = flowWorkspace(flow);
@@ -1962,10 +2090,12 @@
       }
       return step.action === 'pause' || step.action === 'wait' ? (i + 1) + '. ' + verb : (i + 1) + '. ' + String(step.slot + 1).padStart(2, '0') + ' 格 / ' + tab.name + ' · ' + verb;
     });
-    if (!(await askConfirmation('執行「' + flow.name + '」？', '以下步驟會依序送到本機終端：\n\n' + summaryLines.join('\n') + '\n\n請確認目標與指令正確。', '確認執行'))) return;
+    var caseNotes = testCase && testCase.notes ? '測項說明\n' + testCase.notes + '\n\n' : '';
+    if (!(await askConfirmation('執行「' + (testCase ? testCase.code + ' · ' + testCase.title : flow.name) + '」？', caseNotes + '以下步驟會依序送到本機終端：\n\n' + summaryLines.join('\n') + '\n\n請確認目標與指令正確。', '確認執行'))) return;
     $('flowDialog').close();
     flowRunning = true; failedFlowStep = null;
     activeRun = { id: uid('run'), output: new Map(), lines: ['開始 ' + new Date().toISOString(), '流程 ' + flow.name, '工作區 ' + workspace.name], cancelled: false };
+    if (testCase) activeRun.lines.push('測項 ' + testCase.code);
     $('flowLogPath').textContent = ''; $('flowProgress').textContent = '執行中';
     saveRun(); renderFlowEditor();
     var i = 0;
@@ -2554,6 +2684,12 @@
     $('refreshAndroidDevices').addEventListener('click', discoverAndroidAppsDevices);
     $('pickAppsAdb').addEventListener('click', function () { pickAdbTools($('androidAppsDialog'), discoverAndroidAppsDevices); });
     $('androidDevice').addEventListener('change', loadAndroidApps);
+    $('openAndroidMirror').addEventListener('click', function () {
+      if (!this.disabled) requestAndroid('androidMirror', { toolsFolder: appsAdbPath });
+    });
+    $('wakeAndroidScreen').addEventListener('click', function () {
+      if (!this.disabled) requestAndroid('androidWake', { toolsFolder: appsAdbPath });
+    });
     $('androidAppSearch').addEventListener('input', renderAndroidApps);
     $('androidApp').addEventListener('change', updateAndroidButtons);
     $('launchAndroidApp').addEventListener('click', function () {
@@ -2643,6 +2779,35 @@
       (place === 'flow' ? $('flowDialog').querySelector('.flow-toolbar') : $('appOptions').querySelector('.app-options-menu')).appendChild(button);
     });
     $('nanDiscover').addEventListener('click', discoverNanDevices);
+    var testCaseButton = document.createElement('button');
+    testCaseButton.type = 'button'; testCaseButton.className = 'button'; testCaseButton.id = 'testCaseButton';
+    testCaseButton.textContent = '本機測項（TC）…';
+    testCaseButton.addEventListener('click', openTestCaseDialog);
+    $('flowDialog').querySelector('.flow-toolbar').appendChild(testCaseButton);
+    $('testCaseFilter').addEventListener('input', function () { renderTestCaseList(); updateTestCaseButtons(); });
+    $('testCaseSelect').addEventListener('change', function () { testCasePathId = null; editTestCase(this.value); });
+    $('newTestCase').addEventListener('click', function () { testCasePathId = null; editTestCase(''); $('testCaseCode').focus(); });
+    $('testCaseForm').addEventListener('input', function (event) {
+      if (event.target.id === 'testCaseFilter' || event.target.id === 'testCaseSelect') return;
+      testCaseDirty = true; updateTestCaseButtons();
+    });
+    $('testCaseForm').addEventListener('submit', saveTestCase);
+    $('testCaseBrowse').addEventListener('click', function () {
+      if (testCasePathId || testCaseCheck) return;
+      testCasePathId = uid('case-folder');
+      if (!send({ type: 'pickCommandPath', requestId: testCasePathId, kind: 'folder' })) testCasePathId = null;
+    });
+    $('testCaseDialog').addEventListener('close', function () {
+      testCasePathId = null;
+      if (testCaseCheck) { clearTimeout(testCaseCheck.timer); testCaseCheck = null; }
+    });
+    $('deleteTestCase').addEventListener('click', async function () {
+      var item = selectedTestCase();
+      if (!item || !(await askConfirmation('刪除測項？', item.code + ' · ' + item.title, '刪除'))) return;
+      appConfig.testCases = appConfig.testCases.filter(function (entry) { return entry.id !== item.id; });
+      editTestCase(''); queueSave();
+    });
+    $('runTestCase').addEventListener('click', checkTestCase);
     $('nanBrowse').addEventListener('click', function () { if (nanPathId) return; nanPathId = uid('nan-folder'); send({ type: 'pickCommandPath', requestId: nanPathId, kind: 'folder' }); });
     $('nanDialog').addEventListener('close', function () { nanDiscoveryId = null; nanPathId = null; });
     function syncNanToolFields() {
@@ -2666,10 +2831,17 @@
       event.preventDefault();
       if (flowRunning || flowPreparing || nanPathId) { showToast('請先完成目前流程或資料夾選擇。'); return; }
       if (appConfig.workspaces.length >= 12 || appConfig.automations.length >= 32) { showToast('工作區或流程已達上限，請先移除不需要的項目。', true); return; }
-      var values = { recovery: $('nanRecovery').checked, usePython: $('nanTool').value === 'choose' && $('nanUsePython').checked,
-        pythonPath: $('nanPythonPath').value.trim(), bin1Iperf2: $('nanBin1Iperf2').value.trim(), bin2Iperf2: $('nanBin2Iperf2').value.trim() };
+      var values = { recovery: $('nanRecovery').checked, reuseMirrors: $('nanReuseMirrors').checked, usePython: $('nanTool').value === 'choose' && $('nanUsePython').checked,
+        pythonPath: $('nanPythonPath').value.trim(), bin1Iperf2: $('nanBin1Iperf2').value.trim(), bin2Iperf2: $('nanBin2Iperf2').value.trim(),
+        beforeStart: $('nanBeforeStart').value, beforeNdp: $('nanBeforeNdp').value,
+        beforeTransfer: $('nanBeforeTransfer').value, afterTransfer: $('nanAfterTransfer').value };
       ['Dut1', 'Dut2', 'If1', 'If2', 'Tool', 'Bin1', 'Bin2', 'Amount', 'Port', 'Folder'].forEach(function (key) { values[key.toLowerCase()] = $('nan' + key).value.trim(); });
-      try { var flow = window.TerminalGridNan.create(values); $('nanDialog').close(); loadFlowFile(JSON.stringify(flow), 'NAN.tgridflow'); }
+      try {
+        var flow = window.TerminalGridNan.create(values);
+        ['nanBeforeStart', 'nanBeforeNdp', 'nanBeforeTransfer', 'nanAfterTransfer'].forEach(function (id) { $(id).value = ''; });
+        $('nanDialog').close();
+        loadFlowFile(JSON.stringify(flow), 'NAN.tgridflow');
+      }
       catch (error) { showToast(error.message, true); }
     });
     try { $('showLineEditors').checked = localStorage.getItem('terminalGrid.showLineEditors') !== 'false'; } catch (_) { }
@@ -2810,7 +2982,7 @@
     $('addFlowStepButton').addEventListener('click', addFlowStep);
     $('flowName').addEventListener('input', function () { var flow = currentFlow(); if (flow) { flow.name = this.value.slice(0, 64); var option = Array.from($('flowSelect').options).find(function (o) { return o.value === flow.id; }); if (option) option.textContent = flow.name; queueSave(); } });
     $('saveFlowFileButton').addEventListener('click', saveFlowFile);
-    $('runFlowButton').addEventListener('click', runFlow);
+    $('runFlowButton').addEventListener('click', function () { runFlow(); });
     $('deleteFlowButton').addEventListener('click', deleteFlow);
     $('importFlowButton').addEventListener('click', function () { if (hostReady) send({ type: 'flowOpen' }); });
     $('continuePausedFlowButton').addEventListener('click', function () { finishFlowPause(true); });

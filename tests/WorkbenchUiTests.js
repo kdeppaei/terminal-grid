@@ -270,6 +270,11 @@ async function main() {
     await page.locator('#flowButton').click(); await page.locator('#nanWorkflowButton').click();
     let nanRequest = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').pop());
     assert.ok(nanRequest, 'discovery works before focusing a terminal');
+    assert.equal(nanRequest.android, undefined, 'discovery must not query interfaces before DUT selection');
+    await emit({ type: 'commandTargets', requestId: nanRequest.requestId, candidates: [], message: '找不到 adb.exe' });
+    assert.match(await page.locator('#nanStatus').textContent(), /選資料夾/);
+    await page.locator('#nanDiscover').click();
+    nanRequest = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').pop());
     await emit({ type: 'commandTargets', requestId: nanRequest.requestId, candidates: [{ kind: 'device', value: 'DUT_ONE', label: 'Samsung 1' }, { kind: 'device', value: 'DUT_TWO', label: 'Samsung 2' }] });
     assert.equal(await page.locator('#nanDevices option').count(), 2);
     await page.locator('#nanDut1').fill('DUT_ONE'); await page.locator('#nanDut2').fill('DUT_ONE');
@@ -278,6 +283,9 @@ async function main() {
     await page.locator('#nanDut2').fill('DUT_TWO'); await page.locator('#nanIf1').fill('aware_data1');
     await page.locator('#nanTool').selectOption('iperf3');
     await page.screenshot({ path: path.join(results, 'nan-wizard.png') });
+    await page.locator('#nanForm details summary').click();
+    const evidenceChecklist = '核對接收紀錄\n記下吞吐量';
+    await page.locator('#nanAfterTransfer').fill(evidenceChecklist);
     await reset(); await page.locator('#nanForm button[type="submit"]').click();
     assert.equal(await page.locator('.terminal-grid:visible .pane:visible').count(), 6);
     assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
@@ -285,7 +293,9 @@ async function main() {
     const nanFile = await page.evaluate(() => JSON.parse(window.fixture.messages.filter(m => m.type === 'flowSave').pop().text));
     assert.equal(nanFile.workspace.slots[5].tabs.length, 2);
     assert.match(nanFile.workspace.slots[3].tabs[0].args, /--if1 "aware_data1" --if2 "auto"/);
-    assert.equal(nanFile.steps.filter(s => s.action === 'pause').length, 2);
+    assert.equal(nanFile.steps.filter(s => s.action === 'pause').length, 3);
+    assert.equal(nanFile.steps.at(-1).text, '傳輸完成後\n' + evidenceChecklist);
+    assert.equal(await page.locator('#flowSteps textarea.flow-step-text').last().inputValue(), nanFile.steps.at(-1).text);
     assert.deepEqual(nanFile.steps.slice(0, 3).map(s => s.action), ['stop', 'stop', 'stop']);
     await page.evaluate(() => {
       const f = window.fixture, original = window.chrome.webview.postMessage;
@@ -303,6 +313,9 @@ async function main() {
     pass('NAN wizard creates exportable six-cell workflow; manual NDP/server pauses gate ping and traffic with correct DUT mapping');
     const traffic = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'start' && m.slot === 4));
     await emit({ type: 'exited', workspaceId: traffic.workspaceId, slot: 4, tabId: traffic.tabId, generation: 1, exitCode: 0 });
+    await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('傳輸完成後'));
+    assert.equal(await page.locator('#flowPauseMessage').textContent(), nanFile.steps.at(-1).text);
+    await page.locator('#continuePausedFlowButton').click();
     await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 流程完成')));
 
     await page.evaluate(() => {
@@ -327,14 +340,18 @@ async function main() {
       await page.locator('#nanWorkflowButton').click();
       await page.locator('#nanTool').selectOption('choose');
       await page.locator('#nanUsePython').setChecked(python);
-      if (python) await page.locator('#nanPythonPath').fill('C:\\Python Tools\\python.exe');
+      if (python) {
+        await page.locator('#nanPythonPath').fill('C:\\Python Tools\\python.exe');
+        if (!(await page.locator('#nanBeforeTransfer').isVisible())) await page.locator('#nanForm details summary').click();
+        await page.locator('#nanBeforeTransfer').fill('開啟收證');
+      }
       await page.locator('#nanForm button[type="submit"]').click();
       await reset(); await page.locator('#runFlowButton').click();
       assert.match(await page.locator('#confirmMessage').innerText(), /1300000000/);
       await page.locator('#confirmAccept').click();
-      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('AScC') && document.getElementById('flowPauseDialog').open);
+      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('啟動 Wi-Fi Aware') && document.getElementById('flowPauseDialog').open);
       await page.locator('#continuePausedFlowButton').click();
-      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('Start BLE') && document.getElementById('flowPauseDialog').open);
+      await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('依測試工具的提示建立 NDP') && document.getElementById('flowPauseDialog').open);
       await page.locator('#continuePausedFlowButton').click();
       if (python) {
         const probe = await receivedStart('nan-python-probe');
@@ -349,6 +366,11 @@ async function main() {
       await page.waitForTimeout(250);
       assert.equal(await page.locator('#nanTransferDialog').isVisible(), false);
       await tabOutput(ping, '64 bytes from fe80::1: icmp_seq=1 ttl=64 time=1.3 ms\r\n');
+      if (python) {
+        await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('開啟收證') && document.getElementById('flowPauseDialog').open);
+        assert.equal(await page.locator('#nanTransferDialog').isVisible(), false);
+        await page.locator('#continuePausedFlowButton').click();
+      }
       await page.locator('#nanTransferDialog').waitFor({ state: 'visible' });
       assert.equal(await page.locator('#nanTransferAmount').innerText(), '1.3 GB（1,300,000,000 bytes）');
       assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' && /nan-(server|traffic)/.test(m.tabId))), false);
@@ -448,6 +470,16 @@ async function main() {
     const appRequest = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'androidApps'));
     assert.equal(appRequest.serial, 'USB2');
     await emit({ type: 'androidActionResult', requestId: appRequest.requestId, components: ['com.android.settings/.Settings', 'com.android.chrome/.Main'] });
+    await page.locator('#openAndroidMirror').click();
+    const mirrorRequest = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'androidMirror'));
+    assert.equal(mirrorRequest.serial, 'USB2');
+    await emit({ type: 'androidActionResult', requestId: mirrorRequest.requestId });
+    assert.match(await page.locator('#androidAppsStatus').innerText(), /已啟動 scrcpy/);
+    await page.locator('#wakeAndroidScreen').click();
+    const wakeRequest = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'androidWake'));
+    assert.equal(wakeRequest.serial, 'USB2');
+    await emit({ type: 'androidActionResult', requestId: wakeRequest.requestId });
+    assert.match(await page.locator('#androidAppsStatus').innerText(), /已送出喚醒指令/);
     await page.locator('#androidAppSearch').fill('settings');
     assert.equal(await page.locator('#androidApp option').count(), 1);
     await page.locator('#androidApp').selectOption('com.android.settings/.Settings');
@@ -511,6 +543,39 @@ async function main() {
     assert.equal(await page.evaluate(() => localStorage.getItem('terminalGrid.pullDestination.sdcard/log')), 'D:\\Samsung Logs');
     await cancelLogPull();
     pass('Pull destinations persist separately across reload, respect source changes, and reject cancelled or stale updates');
+    await reset();
+    await page.locator('#flowButton').click();
+    await page.locator('#testCaseButton').click();
+    await page.locator('#newTestCase').click();
+    await page.locator('#testCaseCode').fill('DEMO-01');
+    await page.locator('#testCaseName').fill('雙機檢查');
+    await page.locator('#testCaseNotes').fill('步驟一\n核對接收紀錄');
+    await page.locator('#testCaseFeasibility').selectOption('assisted');
+    await page.locator('#testCaseFlow').selectOption({ index: 1 });
+    await page.locator('#testCaseUsb').fill('2');
+    await page.locator('#testCaseSerials').fill('USB1, USB2');
+    await page.locator('#testCaseForm button[type="submit"]').click();
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'save' && m.config.testCases[0]?.code === 'DEMO-01'));
+    await page.locator('#testCaseFilter').fill('demo-01');
+    assert.equal(await page.locator('#testCaseSelect option').count(), 2);
+    const checkedUsb = value => ({ kind: 'device', value, usb: true });
+    async function checkUsb(candidates) {
+      await reset();
+      await page.locator('#runTestCase').click();
+      const request = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'discoverCommandTargets'));
+      await emit({ type: 'commandTargets', requestId: request.requestId, candidates, adbPath: 'adb.exe' });
+    }
+    await checkUsb([checkedUsb('USB1'), { kind: 'device', value: 'USB2', usb: false }]);
+    assert.match(await page.locator('#testCaseStatus').innerText(), /已確認 1 台.*USB2/);
+    assert.equal(await page.locator('#confirmDialog').isVisible(), false);
+    await checkUsb([checkedUsb('USB1'), checkedUsb('USB3')]);
+    assert.match(await page.locator('#testCaseStatus').innerText(), /已確認 2 台.*USB2/);
+    await checkUsb([checkedUsb('USB1'), checkedUsb('USB2')]);
+    await page.locator('#confirmAccept').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#confirmMessage').innerText(), /步驟一\s+核對接收紀錄/);
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' || m.type === 'input')), false);
+    await page.locator('#confirmCancel').click();
+    pass('local TC catalog saves notes, checks exact USB devices and opens a non-executing command preview');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

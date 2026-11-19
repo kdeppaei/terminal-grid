@@ -128,7 +128,7 @@
     ['iperf3 版本', 'adb -s {{SERIAL}} shell iperf3 --version', '手機需先安裝；若不在 PATH，改填 /data/local/tmp/iperf3 等路徑。'],
     ['iperf3 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf3 -6 -s -p 5201', 'DUT1 前景 server，Ctrl+C 結束。Client／Ping 的動態 IPv6 請用雙手機流程。'],
     ['iperf 2 IPv6 Server', 'adb -s {{SERIAL}} shell -tt iperf -V -s -p 5001', 'DUT1 server；兩端必須同為 iperf 2。'],
-    ['手機鏡像', 'scrcpy -s {{SERIAL}}', '開啟指定手機的 scrcpy，手動操作 NAN APK 或 Quick Share。']
+    ['手機鏡像', 'scrcpy -s {{SERIAL}}', '開啟指定手機的 scrcpy，手動操作 Wi-Fi Aware 或 Quick Share。']
   ]);
   pack('adb-logs', 'ADB／抓 Log', logPull);
   pack('device-files', '裝置設定／Logs／local tmp', [

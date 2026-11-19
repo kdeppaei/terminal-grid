@@ -16,7 +16,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.17.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.18.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -157,7 +157,7 @@ namespace TerminalGridIntegrated
                 if (type == "ready")
                 {
                     ready = true;
-                    Send(new { type = "init", config = config, version = "3.17.0", capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
+                    Send(new { type = "init", config = config, version = typeof(TerminalForm).Assembly.GetName().Version.ToString(3), capabilities = new { pwsh = ShellBuilder.FindExecutable("pwsh.exe") != null } });
                     if (loadWarning.Length > 0) Status(loadWarning);
                     return;
                 }
@@ -228,7 +228,7 @@ namespace TerminalGridIntegrated
                 if (type == "deviceFilesOpen") { Ui(delegate { if (deviceFiles == null || deviceFiles.IsDisposed) deviceFiles = new DeviceFilesForm(); if (!deviceFiles.Visible) deviceFiles.Show(this); deviceFiles.Activate(); }); return; }
                 if (type == "flowOpen") { Ui(OpenFlow); return; }
                 if (type == "flowSave") { Ui(delegate { SaveFlow(StringValue(message, "text")); }); return; }
-                if (type == "androidApps" || type == "androidLaunch") { RunAndroidAction(type, message); return; }
+                if (type == "androidApps" || type == "androidLaunch" || type == "androidMirror" || type == "androidWake") { RunAndroidAction(type, message); return; }
                 if (type == "browseAndroidPath") { BrowseAndroidPath(message); return; }
                 if (type == "runSave") { SaveRun(StringValue(message, "runId"), StringValue(message, "text")); return; }
                 if (type == "exportLog") { Ui(delegate { ExportLog(StringValue(message, "text")); }); return; }
@@ -358,6 +358,7 @@ namespace TerminalGridIntegrated
         void RunAndroidAction(string type, IDictionary<string, object> message)
         {
             string requestId = StringValue(message, "requestId"), serial = StringValue(message, "serial");
+            if (requestId.Length == 0 || requestId.Length > 100) return;
             string folder = StringValue(message, "toolsFolder"), component = StringValue(message, "component");
             bool list = type == "androidApps", sysdump = StringValue(message, "sysdump") == "True";
             Task.Run(delegate {
@@ -365,10 +366,17 @@ namespace TerminalGridIntegrated
                     if (!AndroidLaunch.ValidSerial(serial)) throw new ArgumentException("請選擇已授權的 ADB 裝置。");
                     string adb = String.IsNullOrWhiteSpace(folder) ? TargetDiscovery.FindAdb(null) : AdbFiles.FindAdb(folder);
                     if (adb == null) throw new FileNotFoundException("找不到 adb.exe，請選工具資料夾。");
-                    string command = list ? AndroidLaunch.ListCommand : AndroidLaunch.StartCommand(component, sysdump);
+                    if (type == "androidMirror")
+                    {
+                        bool started = AndroidLaunch.OpenMirror(adb, serial);
+                        Ui(delegate { Send(new { type = "androidActionResult", requestId = requestId, alreadyOpen = !started }); });
+                        return;
+                    }
+                    bool wake = type == "androidWake";
+                    string command = wake ? AndroidLaunch.WakeCommand : list ? AndroidLaunch.ListCommand : AndroidLaunch.StartCommand(component, sysdump);
                     string output = TargetDiscovery.AdbShell(adb, serial, command, 15000);
                     string[] components = list ? AndroidLaunch.Components(output) : null;
-                    if (!list) AndroidLaunch.CheckStartResult(output);
+                    if (!list && !wake) AndroidLaunch.CheckStartResult(output);
                     Ui(delegate { Send(new { type = "androidActionResult", requestId = requestId, components = components }); });
                 } catch (Exception ex) {
                     string error = ex.Message.Length <= 500 ? ex.Message : ex.Message.Substring(0, 500);

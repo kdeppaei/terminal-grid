@@ -42,6 +42,10 @@ static class ConfigTests
                 automations = new List<AutomationConfig> { new AutomationConfig { id = "iperf-flow", name = "iperf flow", workspaceId = workspace.id, steps = new List<FlowStepConfig> { new FlowStepConfig { action = "send", slot = 0, tabId = "client", text = "iperf3 -c 127.0.0.1" } } } } };
             string appJson = ConfigStore.Serializer().Serialize(AppConfig.Normalize(app));
             AppConfig appRoundTrip = ConfigStore.ParseAppConfig(appJson);
+            app.testCases = new List<TestCaseConfig> { new TestCaseConfig { id = "case", code = "DEMO-01",
+                title = "測試", notes = "步驟一\n步驟二", feasibility = "assisted", flowId = "flow-1", usbCount = 2, serials = "USB1, USB2" } };
+            var savedCase = ConfigStore.ParseAppConfig(ConfigStore.Serializer().Serialize(app)).testCases[0];
+            Check(savedCase.notes == "步驟一\n步驟二" && savedCase.usbCount == 2 && savedCase.flowId == "flow-1" && savedCase.serials == "USB1, USB2", "test case notes and USB requirements round-trip locally");
             Check(appRoundTrip.workspaces.Count == 1 && appRoundTrip.workspaces[0].slots[0].tabs.Count == 2, "application config round-trips workspace terminal tabs");
             Check(appRoundTrip.automations.Count == 1 && appRoundTrip.automations[0].steps[0].tabId == "client", "automation step persists its target terminal tab");
             app.commandPacks.Add(new CommandPackConfig { id = "my-sqa", name = "我的測試", commands = new List<CommandSnippetConfig> { new CommandSnippetConfig { id = "my-push", name = "推送", description = "自訂說明", command = "adb push {{LOCAL_SOURCE}} {{REMOTE_PATH}}" } } });

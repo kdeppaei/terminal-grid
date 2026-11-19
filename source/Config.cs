@@ -132,6 +132,18 @@ namespace TerminalGridIntegrated
         public bool pinned { get; set; }
         public CommandSnippetConfig() { id = ""; name = ""; description = ""; command = ""; }
     }
+    public sealed class TestCaseConfig
+    {
+        public string id { get; set; }
+        public string code { get; set; }
+        public string title { get; set; }
+        public string feasibility { get; set; }
+        public string notes { get; set; }
+        public string flowId { get; set; }
+        public int usbCount { get; set; }
+        public string serials { get; set; }
+        public string toolsFolder { get; set; }
+    }
     public sealed class CommandPackConfig
     {
         public string id { get; set; }
@@ -146,6 +158,7 @@ namespace TerminalGridIntegrated
         public List<WorkspaceConfig> workspaces { get; set; }
         public List<AutomationConfig> automations { get; set; }
         public List<CommandPackConfig> commandPacks { get; set; }
+        public List<TestCaseConfig> testCases { get; set; }
         public AppConfig() { version = 2; activeWorkspaceId = ""; workspaces = new List<WorkspaceConfig>(); automations = new List<AutomationConfig>(); commandPacks = new List<CommandPackConfig>(); }
         public static AppConfig Normalize(AppConfig value)
         {
@@ -198,6 +211,19 @@ namespace TerminalGridIntegrated
                     command.id = Limit(command.id, 64); command.name = String.IsNullOrWhiteSpace(command.name) ? "常用指令" : Limit(command.name.Trim(), 80);
                     command.description = Limit(command.description, 240); command.command = Limit(command.command, 16000);
                 }
+            }
+            value.testCases = (value.testCases ?? new List<TestCaseConfig>()).Where(c => c != null).Take(256).ToList();
+            foreach (var item in value.testCases)
+            {
+                item.id = Limit(item.id, 64);
+                item.code = Limit(item.code, 32);
+                item.title = Limit(item.title, 120);
+                item.feasibility = item.feasibility == "auto" || item.feasibility == "assisted" || item.feasibility == "external" ? item.feasibility : "pending";
+                item.notes = Limit(item.notes, 4000);
+                item.flowId = Limit(item.flowId, 64);
+                item.usbCount = Math.Max(0, Math.Min(16, item.usbCount));
+                item.serials = Limit(item.serials, 2048);
+                item.toolsFolder = Limit(item.toolsFolder, 4096);
             }
             return value;
         }

@@ -19,8 +19,8 @@ assert.deepEqual(selectable.steps.slice(-2).map(s => [s.action, s.tabId, s.text]
   ['output', 'nan-ping', 'bytes from'], ['nanTransfer', 'nan-ping', '1300000000']
 ]);
 const [configure, connect] = selectable.steps.filter(s => s.action === 'pause');
-assert.match(configure.text, /Start NAN.*AScC.*Sche\.gen.*Start STD\+/);
-assert.match(connect.text, /Start BLE.*Publish.*Subscribe.*NDP/);
+assert.match(configure.text, /啟動 Wi-Fi Aware.*尚未建立 NDP/);
+assert.match(connect.text, /建立 NDP.*發布.*訂閱.*新發現.*驗證 IPv6/);
 const [server3, server2] = selectable.workspace.slots[2].tabs;
 const [client3, client2] = selectable.workspace.slots[4].tabs;
 assert.deepEqual([server3.id, server2.id, client3.id, client2.id], ['nan-server', 'nan-server-iperf2', 'nan-traffic', 'nan-traffic-iperf2']);
@@ -40,4 +40,24 @@ assert.match(python.workspace.slots[3].tabs[1].args, /^--mode python-probe .* --
 assert.equal(python.steps.filter(s => s.action === 'nanTransfer').length, 1);
 assert.equal(python.steps.filter(s => s.action === 'stop' && s.tabId === 'nan-traffic-iperf2').length, 2);
 assert.throws(() => create({ ...runtimeOptions, usePython: true, pythonPath: 'C:\\bad"path.exe' }));
+const existingMirrors = create({ ...runtimeOptions, reuseMirrors: true, recovery: true });
+assert.deepEqual(existingMirrors.steps.filter(s => s.action === 'start').map(s => s.tabId), ['nan-ping', 'nan-ping']);
+assert.ok(existingMirrors.steps.every(s => !s.tabId.startsWith('nan-mirror') || s.action === 'pause'));
+assert.ok(existingMirrors.steps.some(s => s.action === 'pause' && s.text.includes('重新開啟因拔線關閉的 scrcpy')));
+const checkpointOptions = { beforeStart: '確認測試環境', beforeNdp: '確認兩端設定\n記下生效時間', beforeTransfer: '先開始收證', afterTransfer: '核對接收端紀錄' };
+const withCheckpoints = create({ ...runtimeOptions, ...checkpointOptions, recovery: true });
+const firstPreparation = withCheckpoints.steps.findIndex(s => s.text === configure.text);
+assert.equal(withCheckpoints.steps[firstPreparation - 1].text, '啟動 Wi-Fi Aware 前\n' + checkpointOptions.beforeStart);
+assert.deepEqual(withCheckpoints.steps.slice(firstPreparation, firstPreparation + 3).map(s => s.text), [
+  configure.text, '建立 NDP 前\n' + checkpointOptions.beforeNdp, connect.text
+]);
+const choice = withCheckpoints.steps.findIndex(s => s.action === 'nanTransfer');
+assert.equal(withCheckpoints.steps[choice - 2].action, 'output');
+assert.equal(withCheckpoints.steps[choice - 1].text, '傳輸前\n' + checkpointOptions.beforeTransfer);
+assert.equal(withCheckpoints.steps[choice + 1].text, '傳輸完成後\n' + checkpointOptions.afterTransfer);
+assert.equal(withCheckpoints.steps.filter(s => s.text?.startsWith('建立 NDP 前')).length, 2);
+assert.equal(withCheckpoints.steps.filter(s => s.text?.startsWith('傳輸完成後')).length, 1);
+const fixedWithCheckpoints = create({ ...v, ...checkpointOptions });
+assert.equal(fixedWithCheckpoints.steps.at(-2).action, 'exit');
+assert.equal(fixedWithCheckpoints.steps.at(-1).text, '傳輸完成後\n' + checkpointOptions.afterTransfer);
 console.log('NAN workflow: preset and post-Ping choices, optional Python, preparation order, routing, and validation passed.');

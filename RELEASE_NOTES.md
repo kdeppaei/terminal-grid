@@ -1,4 +1,11 @@
-# Terminal Grid 3.17.0
+# Terminal Grid 3.18.0
+
+- 本機測項可按 TC 編號搜尋、貼入步驟與驗收條件，並連結已儲存流程。USB 預檢會核對已授權的裝置與必要序號，通過後才顯示執行預覽。
+- NAN／NDP 精靈可使用已開啟的 scrcpy。可在啟動 Wi-Fi Aware 前、建立 NDP 前、通過 Ping 後及傳輸完成後插入可編輯的人工檢查點。
+- 從「更多 → 手機控制／scrcpy」選定已授權的手機後，可直接開啟獨立的 scrcpy 鏡像視窗或喚醒螢幕。
+- Windows CI 新增 GUI 流程與 USB 預檢測試。版本標籤通過驗證後會發布同一份已驗證的 Windows ZIP 與 SHA-256。
+
+## Terminal Grid 3.17.0
 
 - NAN／NDP 新流程收到本輪 IPv6 Ping 回覆後，可選 iperf3、iperf 2 或 Quick Share。預設傳輸 1.3 GB（1,300,000,000 bytes）。
 - iperf 會等待 DUT1 Server 監聽，再由 DUT2 執行流量測試。Quick Share 提供手機傳檔及收件確認步驟。
@@ -76,7 +83,7 @@
 ## 3.8.0
 
 - 自動化／更多新增「NAN／NDP 雙手機」：選兩台手機，建立可保存與匯出 .tgridflow 的六格工作區，兩個 scrcpy、Server、Ping、Traffic 與雙手機 ADB Shell 分頁。
-- 人工完成 APK 的 NAN／NDP 後按繼續，即時讀取 DUT1 指定介面 IPv6，立刻在 DUT2 執行 ping6。DUT1 查詢介面與 DUT2 scope 分開，預設 aware_data0。再人工確認 Ping 回覆及 server 監聽後開始流量。
+- 人工建立 NAN／NDP 後按繼續，即時讀取 DUT1 指定介面 IPv6，立刻在 DUT2 執行 ping6。DUT1 查詢介面與 DUT2 scope 分開，預設 aware_data0。再人工確認 Ping 回覆及 server 監聽後開始流量。
 - iperf3／iperf 2、手機端工具路徑、Port、傳輸量可設定，預設 -f m -n 1300M。另有 Quick Share 手動傳檔＋Ping 模式。
 - 新增 Default · NAN／NDP 指令包，總計 11 分類、89 指令。保留個人設定，更新腳本同時更新附帶的 TerminalGridNan.exe。
 - Android IPv6 使用手機的 %aware_data0，並非 Windows %數字索引。每次啟動 Ping／Traffic 重新查詢，位址缺失／模糊時停止；重新執行流程先停止該工作區舊 Ping／Server／Traffic。

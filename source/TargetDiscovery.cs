@@ -24,6 +24,7 @@ namespace TerminalGridIntegrated
         public string interfaceName { get; set; }
         public int interfaceIndex { get; set; }
         public string serial { get; set; }
+        public bool usb { get; set; }
     }
     public sealed class TargetDiscoveryResult
     {
@@ -71,7 +72,8 @@ namespace TerminalGridIntegrated
                 string[] parts = line.Trim().Split(new[] { ' ', '\t', '\r' }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length < 2 || parts[1] != "device") continue;
                 string model = parts.FirstOrDefault(p => p.StartsWith("model:", StringComparison.Ordinal)) ?? "";
-                result.Add(new TargetCandidate { value = parts[0], label = parts[0] + " · " + model.Replace("model:", ""), kind = "device" });
+                result.Add(new TargetCandidate { value = parts[0], label = parts[0] + " · " + model.Replace("model:", ""), kind = "device",
+                    usb = parts.Skip(2).Any(p => p.StartsWith("usb:", StringComparison.Ordinal) && p.Length > 4) });
                 string address = parts[0]; int port = address.LastIndexOf(':');
                 System.Net.IPAddress ip;
                 if (port > 0 && System.Net.IPAddress.TryParse(address.Substring(0, port).Trim('[', ']'), out ip))

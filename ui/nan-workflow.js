@@ -45,26 +45,41 @@
     function stop(slot, tabId) { return Object.assign(start(slot, tabId), { action: 'stop' }); }
     function pause(text) { return { action: 'pause', slot: 0, tabId: groups[0][0].id, text: text }; }
     function waitForPing() { return { action: 'output', slot: 3, tabId: 'nan-ping', text: 'bytes from', timeoutMs: 10000, retries: 2 }; }
-    var prepNan = '在兩台手機的 NAN 測試頁接續按 Start NAN。需要 AScC 或 Sche.gen 的測項請先手動設定。若測項需要 STD+，在此頁完成所有設定後，最後才在兩台接續按 Start STD+。';
-    var prepNdp = '兩台切換到 Wi-Fi Aware 測試頁並先按 Start BLE，接著 DUT1 做 Publish、DUT2 做 Subscribe。確認找到指定對端並建立 NDP 後，按「繼續」驗證 Ping。';
-    var steps = [start(0), start(1)];
-    if (choose) {
-      steps.push(pause(prepNan), pause(prepNdp));
-      if (usePython) steps.push(start(3, 'nan-python-probe'), { action: 'exit', slot: 3, tabId: 'nan-python-probe', timeoutMs: 40000, retries: 0 });
-      steps.push(start(3), waitForPing(), { action: 'nanTransfer', slot: 3, tabId: 'nan-ping', text: v.amount });
-    } else steps.push(pause('請透過兩個 scrcpy 視窗在 APK 建立 NAN／NDP。完成後按「繼續」，DUT2 會使用當下的 DUT1 IPv6 與 DUT2 發送介面執行 ping6。'), start(3));
+    var prepNan = '在兩台手機啟動 Wi-Fi Aware。若測項需要在連線前套用設定，請保持兩台尚未建立 NDP。';
+    var prepNdp = '依測試工具的提示建立 NDP。由 DUT1 發布、DUT2 訂閱，並在 DUT2 選本輪新發現的 DUT1 對端。確認資料路徑已就緒，再按「繼續」讓第 04 格驗證 IPv6。';
+    var beforeStart = (v.beforeStart || '').trim();
+    var beforeNdp = (v.beforeNdp || '').trim();
+    var beforeTransfer = (v.beforeTransfer || '').trim();
+    var afterTransfer = (v.afterTransfer || '').trim();
+    function addPreparation(steps) {
+      if (beforeStart) steps.push(pause('啟動 Wi-Fi Aware 前\n' + beforeStart));
+      if (choose || beforeNdp) {
+        steps.push(pause(prepNan));
+        if (beforeNdp) steps.push(pause('建立 NDP 前\n' + beforeNdp));
+        steps.push(pause(prepNdp));
+      } else steps.push(pause(prepNan + '\n\n' + prepNdp));
+    }
+    var steps = v.reuseMirrors ? [] : [start(0), start(1)];
+    addPreparation(steps);
+    if (usePython) steps.push(start(3, 'nan-python-probe'), { action: 'exit', slot: 3, tabId: 'nan-python-probe', timeoutMs: 40000, retries: 0 });
+    steps.push(start(3));
+    if (choose || beforeTransfer) steps.push(waitForPing());
+    if (beforeTransfer) steps.push(pause('傳輸前\n' + beforeTransfer));
+    if (choose) steps.push({ action: 'nanTransfer', slot: 3, tabId: 'nan-ping', text: v.amount });
     if (v.tool === 'iperf3' || v.tool === 'iperf') steps.push(start(2), pause('確認第 04 格 ping6 有回覆，且第 03 格 server 正常監聽，再按「繼續」啟動 ' + v.amount + ' 流量。若出錯先停止流程；可關閉此視窗後修正設定／重新啟動該格。'), start(4),
       { action: 'exit', slot: 4, tabId: 'nan-traffic', timeoutMs: 600000, retries: 0 });
-    if (v.tool === 'share') steps.push(pause('Ping 已啟動。請確認第 04 格有回覆，再透過 scrcpy 操作 Quick Share 傳送檔案。完成後按「繼續」結束流程編排，Ping 會持續；需自行停止第 04 格。'));
+    if (v.tool === 'share') steps.push(pause('Ping 已啟動。請確認第 04 格有回覆，再透過 scrcpy 操作 Quick Share 傳送檔案。確認接收完成後按「繼續」。Ping 會持續；可在第 04 格停止。'));
+    if (afterTransfer) steps.push(pause('傳輸完成後\n' + afterTransfer));
     var stopTests = [stop(3), stop(2), stop(4)];
     if (choose) stopTests.push(stop(2, 'nan-server-iperf2'), stop(4, 'nan-traffic-iperf2'));
     if (usePython) stopTests.push(stop(3, 'nan-python-probe'));
     if (v.recovery) {
       steps.push(pause('透過 APK 中斷 NDP，核對第 04 格 ping 是否失去回覆，必要時按 F8 留下證據。完成後按繼續。'));
       steps.push.apply(steps, stopTests);
-      steps.push(stop(0), stop(1), pause('拔除並重插兩台手機。確認 USB 偵錯已重新授權，且仍使用原 DUT 序號，再按繼續。'), start(0), start(1));
-      if (choose) steps.push(pause(prepNan), pause(prepNdp));
-      else steps.push(pause('重新建立 Wi-Fi Aware／NDP 後按繼續，重新偵測兩端介面與 IPv6 並測試 Ping。'));
+      if (!v.reuseMirrors) steps.push(stop(0), stop(1));
+      steps.push(pause('拔除並重插兩台手機。確認 USB 偵錯已重新授權，且仍使用原 DUT 序號。' + (v.reuseMirrors ? '請重新開啟因拔線關閉的 scrcpy。' : '') + '完成後按繼續。'));
+      if (!v.reuseMirrors) steps.push(start(0), start(1));
+      addPreparation(steps);
       steps.push(start(3), waitForPing());
     }
     // Re-running must end only this workspace's old traffic before obtaining a

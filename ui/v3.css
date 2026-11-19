@@ -36,6 +36,7 @@
 .flow-step .flow-step-text[hidden],.flow-step .flow-enter[hidden],.flow-step .flow-target[hidden]{display:none}
 .flow-step[data-action="pause"],.flow-step[data-action="wait"]{grid-template-columns:112px minmax(150px,1fr) 27px 27px 27px}
 .flow-step[data-action="pause"] .flow-step-text,.flow-step[data-action="wait"] .flow-step-text{grid-column:2}
+.flow-step textarea.flow-step-text{min-height:48px}
 .pause-message{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6;color:#e0edf8}
 .compact-modal{width:min(560px,calc(100vw - 32px))}
 .compact-modal .modal-content{padding-top:16px;padding-bottom:12px}
