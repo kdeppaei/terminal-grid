@@ -117,6 +117,11 @@
     <form id="testCaseForm">
       <div class="modal-heading"><h2 id="testCaseTitle">本機測項（TC）</h2><button type="button" class="icon-button" data-close="testCaseDialog" aria-label="關閉測項">×</button></div>
       <div class="modal-content">
+        <div class="folder-input-row">
+          <select id="defaultTestCase" aria-label="Default 測項"><option value="">Default 測項 · 選擇範本</option></select>
+          <button id="addDefaultTestCase" type="button" class="button" disabled>建立本機測項…</button>
+        </div>
+        <p id="defaultTestCaseNote" class="help-note" role="status">選擇範本後可設定裝置，再儲存成可編輯的本機測項。</p>
         <div class="flow-toolbar">
           <input id="testCaseFilter" aria-label="搜尋測項" placeholder="輸入 TC 編號或名稱">
           <select id="testCaseSelect" aria-label="已儲存測項"></select>
@@ -176,6 +181,24 @@
   <div id="terminalContextMenu" class="terminal-context-menu" hidden></div>
   <dialog id="pathCommandDialog" class="modal" aria-labelledby="pathCommandTitle"><form id="pathCommandForm"><div class="modal-heading"><h2 id="pathCommandTitle">選擇裝置、IP 與路徑</h2><button type="button" class="icon-button" data-close="pathCommandDialog" aria-label="取消參數選擇">×</button></div><div class="modal-content"><p class="help-note">選擇偵測到的裝置／IP，或手動輸入。本機網卡 IP 不代表遠端伺服器。插入不執行；流程需另外確認執行。</p><button type="button" id="refreshCommandTargets" class="button">重新偵測裝置／IP</button><p id="targetDiscoveryStatus" class="help-note" role="status"></p><div id="pathCommandFields"></div></div><div class="modal-actions"><button type="button" class="button quiet" data-close="pathCommandDialog">取消</button><button type="submit" class="button primary">套用參數</button></div></form></dialog>
 
+  <dialog id="apTestDialog" class="modal" aria-labelledby="apTestTitle"><form id="apTestForm">
+    <div class="modal-heading"><h2 id="apTestTitle">Wi-Fi AP 驗證</h2><button type="button" class="icon-button" data-close="apTestDialog" aria-label="關閉 AP 設定">×</button></div>
+    <div class="modal-content">
+      <p class="help-note">流程會提示你切換 AP，再用 ADB 驗證。需 Python 3.9+ 並保持手機 Wi-Fi 開啟。</p>
+      <label class="field">ADB 資料夾<div class="folder-input-row"><input id="apTestFolder" placeholder="留空使用 PATH"><button id="apTestBrowse" type="button" class="button">選資料夾…</button></div></label>
+      <button id="apTestDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="apTestStatus" class="help-note" role="status"></p>
+      <label class="field">USB 裝置序號<input id="apTestSerial" list="nanDevices" maxlength="128" required></label>
+      <div id="apTestTarget" class="form-two">
+        <label class="field">SSID<input id="apTestSsid" maxlength="32"></label>
+        <label class="field">BSSID（選填）<input id="apTestBssid" maxlength="17" placeholder="00:11:22:33:44:55"></label>
+      </div>
+      <div class="form-two">
+        <label class="field">Python 執行檔<input id="apTestPython" placeholder="留空使用 PATH"></label>
+        <label class="field">等待秒數<input id="apTestTimeout" type="number" min="3" max="300" value="30" required></label>
+      </div>
+    </div>
+    <div class="modal-footer"><button type="submit" class="button primary">儲存測項</button></div>
+  </form></dialog>
   <dialog id="nanDialog" class="modal" aria-labelledby="nanTitle"><form id="nanForm">
     <div class="modal-heading"><div><span class="eyebrow">WI-FI AWARE</span><h2 id="nanTitle">NAN／NDP 雙手機流程</h2></div><button type="button" class="icon-button" data-close="nanDialog" aria-label="關閉 NAN 設定">×</button></div>
     <div class="modal-content">
@@ -187,8 +210,8 @@
       <datalist id="nanInterfaces"><option value="auto">自動偵測（建立 NDP 後）</option></datalist>
       <label><input id="nanReuseMirrors" type="checkbox"> 使用已開啟的 scrcpy 視窗</label>
       <label><input id="nanRecovery" type="checkbox"> 加入 NDP 中斷、USB 重插與重建驗收</label>
-      <div class="form-two"><label class="field">測試模式<select id="nanTool"><option value="choose">Ping 成功後選擇</option><option value="iperf3">固定 iperf3</option><option value="iperf">固定 iperf 2</option><option value="share">固定 Quick Share</option></select></label><label class="field"><span id="nanAmountLabel">傳輸量（bytes）</span><input id="nanAmount" value="1300000000" required></label></div>
-      <div class="form-two"><label class="field"><span id="nanBin1Label">DUT1 iperf3 名稱／Android 路徑</span><input id="nanBin1" value="iperf3" required></label><label class="field"><span id="nanBin2Label">DUT2 iperf3 名稱／Android 路徑</span><input id="nanBin2" value="iperf3" required></label></div>
+      <div class="form-two"><label class="field">測試模式<select id="nanTool"><option value="choose">Ping 成功後選擇</option><option value="ping">只驗證 IPv6 Ping</option><option value="iperf3">固定 iperf3</option><option value="iperf">固定 iperf 2</option><option value="share">固定 Quick Share</option></select></label><label class="field"><span id="nanAmountLabel">傳輸量（bytes）</span><input id="nanAmount" value="1300000000" required></label></div>
+      <div id="nanTrafficBins" class="form-two"><label class="field"><span id="nanBin1Label">DUT1 iperf3 名稱／Android 路徑</span><input id="nanBin1" value="iperf3" required></label><label class="field"><span id="nanBin2Label">DUT2 iperf3 名稱／Android 路徑</span><input id="nanBin2" value="iperf3" required></label></div>
       <div id="nanIperf2Fields" class="form-two"><label class="field">DUT1 iperf 2 名稱／Android 路徑<input id="nanBin1Iperf2" value="iperf"></label><label class="field">DUT2 iperf 2 名稱／Android 路徑<input id="nanBin2Iperf2" value="iperf"></label></div>
       <label class="field"><span id="nanPortLabel">iperf3 Port（iperf 2 使用 5001）</span><input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
       <label id="nanPythonOption"><input id="nanUsePython" type="checkbox"> 先執行 Python 雙機驗證（需 Python 3.9+）</label>

@@ -2,6 +2,8 @@
 
 在同一個 Windows 主視窗內，使用多個可直接操作的 CMD／PowerShell 終端。適合同時查看 Ping、DNS 查詢、路由追蹤與其他命令列工具。
 
+**3.19.1**「自動化 → 本機測項（TC）→ Default 測項」提供八個通用範本，包含 NAN／NDP Ping、傳輸、重插重建與 Wi-Fi AP 狀態驗證。設定裝置後建立可編輯的本機測項，可預檢執行或加入批次佇列。NDP 建立、Quick Share 選檔和 AP 切換會提示操作者完成。
+
 **3.19.0** 本機 TC 可批次匯入、勾選續跑並重查 USB。流程可要求每格保存逐行時間戳 Log，NAN 支援 iperf 傳輸中的人工操作。
 
 **3.17.0** NAN／NDP 精靈在 IPv6 Ping 成功後提供 iperf3、iperf 2 或 Quick Share 選擇，預設 1.3 GB（1,300,000,000 bytes）。ZIP 內含可由精靈呼叫的 Python 雙機驗證器。

@@ -1,6 +1,51 @@
 (function (root) {
   'use strict';
   function serials(value) { return Array.from(new Set(value.split(/[\s,，]+/).filter(Boolean))); }
+  var defaults = [
+    { code: 'NAN-PING', title: 'NAN／NDP IPv6 Ping', tool: 'ping', notes: '手動建立 NDP。自動取得 DUT1 IPv6 與 DUT2 介面，等候本輪 Ping 回覆。' },
+    { code: 'NAN-TRANSFER', title: 'NAN／NDP Ping 後選擇傳輸', tool: 'choose', notes: '建立 NDP 後等待 Ping，接著選 iperf3、iperf 2 或 Quick Share。' },
+    { code: 'NAN-IPERF3', title: 'NAN／NDP iperf3 1.3 GB', tool: 'iperf3', notes: '兩端先備妥 iperf3。確認 Server 監聽後從 DUT2 傳送 1,300,000,000 bytes，保留工具輸出。' },
+    { code: 'NAN-IPERF2', title: 'NAN／NDP iperf 2 1.3 GB', tool: 'iperf', notes: '兩端先備妥 iperf 2。確認 Server 監聽後從 DUT2 傳送 1,300,000,000 bytes，保留工具輸出。' },
+    { code: 'NAN-SHARE', title: 'NAN／NDP Quick Share 1.3 GB', tool: 'share', notes: '先在 DUT2 準備 1.3 GB 測試檔。Ping 成功後手動選檔、接收並確認完成。' },
+    { code: 'NAN-RECOVERY', title: 'NAN／NDP 重插與重建驗證', tool: 'ping', recovery: true, notes: '驗證初次 Ping，手動中斷 NDP、重插 USB 並重建。流程重新查址，再驗證 Ping。' },
+    { code: 'AP-CONNECTED', title: 'Wi-Fi AP 連線驗證', state: 'connected', notes: '依提示切換至指定 SSID，可指定 BSSID。用 ADB 驗證連線狀態，需 Python 3.9+。' },
+    { code: 'AP-DISCONNECTED', title: 'Wi-Fi AP 斷線驗證', state: 'disconnected', notes: '依提示中斷 AP 連線並保持 Wi-Fi 開啟。用 ADB 驗證狀態，需 Python 3.9+。' }
+  ];
+  function makeDefault(preset, existing, flowId, devices, folder) {
+    var used = new Set(existing.map(function (item) { return item.code.toLowerCase(); }));
+    var code = preset.code, index = 2;
+    while (used.has(code.toLowerCase())) code = preset.code + '-' + index++;
+    return { code: code, title: preset.title, notes: preset.notes, feasibility: 'assisted',
+      flowId: flowId, usbCount: devices.length, serials: devices.join(', '), toolsFolder: folder };
+  }
+  function createApFlow(preset, values) {
+    var folder = values.folder, appDir = values.appDir;
+    if (!appDir) throw Error('請在 Terminal Grid 桌面版建立 AP 測項。');
+    if (!/^[A-Za-z0-9_.:\[\]%-]{1,128}$/.test(values.serial)) throw Error('請輸入有效的 USB 裝置序號。');
+    if (/[\x00-\x1f"]/.test(folder + values.python + appDir + (values.adbPath || ''))) throw Error('路徑不可包含引號或控制字元。');
+    if (preset.state === 'connected' && (!values.ssid || /[\x00-\x1f]/.test(values.ssid) || new TextEncoder().encode(values.ssid).length > 32))
+      throw Error('請輸入 1–32 bytes 的有效 SSID。');
+    if (values.bssid && !/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(values.bssid)) throw Error('BSSID 格式應為六組十六進位數字。');
+    if (!/^\d+$/.test(values.timeout) || +values.timeout < 3 || +values.timeout > 300) throw Error('等待時間須為 3–300 秒。');
+    function join(path, file) { return path.replace(/[\\/]+$/, '') + '\\' + file; }
+    function quote(value) { return '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1') + '"'; }
+    var args = [join(appDir, 'tools\\wait_wifi_ap.py'), '--adb=' + (values.adbPath || (folder ? join(folder, 'adb.exe') : 'adb.exe')),
+      '--serial=' + values.serial, '--state=' + preset.state, '--timeout=' + values.timeout];
+    if (preset.state === 'connected') {
+      args.push('--ssid=' + values.ssid);
+      if (values.bssid) args.push('--bssid=' + values.bssid);
+    }
+    var tab = { id: 'ap-status', name: preset.title, shell: 'Custom', exe: values.python || 'python.exe', args: args.map(quote).join(' ') };
+    var instruction = preset.state === 'connected'
+      ? '請在手機連到指定 AP（' + values.ssid + '），完成後繼續檢查。'
+      : '請在手機中斷目前 AP 連線並保持 Wi-Fi 開啟，完成後繼續檢查。';
+    return { format: 'terminal-grid-flow', version: 1, name: preset.title,
+      workspace: { name: preset.title, rows: 1, cols: 1, slots: [{ activeTabId: tab.id, tabs: [tab] }] },
+      steps: [{ action: 'pause', slot: 0, tabId: tab.id, text: instruction },
+        { action: 'stop', slot: 0, tabId: tab.id },
+        { action: 'start', slot: 0, tabId: tab.id, delayMs: 100 },
+        { action: 'exit', slot: 0, tabId: tab.id, timeoutMs: +values.timeout * 1000 + 15000 }] };
+  }
   function parse(text, existing, flows) {
     if (typeof text !== 'string' || text.length > 1024 * 1024) throw Error('測項檔案上限為 1 MB。');
     text = text.replace(/^\uFEFF/, '').trim();
@@ -51,5 +96,5 @@
         flowId: flow ? matching[0].id : '', toolsFolder: get('toolsfolder') };
     });
   }
-  root.TerminalGridTestCases = { parse: parse, serials: serials };
+  root.TerminalGridTestCases = { parse: parse, serials: serials, defaults: defaults, makeDefault: makeDefault, createApFlow: createApFlow };
 }(typeof window === 'undefined' ? globalThis : window));

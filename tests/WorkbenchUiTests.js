@@ -308,6 +308,11 @@ async function main() {
     await page.locator('#confirmAccept').click(); await page.locator('#flowPauseDialog').waitFor({ state: 'visible' });
     assert.deepEqual(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start').map(m => m.slot)), [0, 1]);
     await page.locator('#continuePausedFlowButton').click();
+    await page.locator('.terminal-grid:visible .pane[data-slot="3"][data-status="running"]').waitFor({ state: 'visible' });
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start' && m.slot === 2)), false);
+    const pingRoute = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'start' && m.slot === 3));
+    await emit({ type: 'output', workspaceId: pingRoute.workspaceId, slot: 3, tabId: pingRoute.tabId,
+      generation: 1, data: Buffer.from('64 bytes from fe80::10: icmp_seq=1\r\n').toString('base64') });
     await page.waitForFunction(() => document.getElementById('flowPauseMessage').textContent.includes('server 正常監聽'));
     assert.deepEqual(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start').map(m => m.slot)), [0, 1, 3, 2]);
     await page.locator('#continuePausedFlowButton').click();
@@ -667,6 +672,36 @@ async function main() {
     assert.notEqual(recordings[0].recordRun, recordings[1].recordRun);
     assert.ok(recordings.every(m => m.recordFolder === 'C:\\Evidence'));
     pass('the TC queue advances in selection order with separately identified output recordings and manual log checkpoints');
+    if (await page.locator('#testCaseDialog').isVisible()) await page.locator('#testCaseDialog [data-close]').click();
+    if (await page.locator('#flowDialog').isVisible()) await page.locator('#flowDialog [data-close]').first().click();
+    await emit({ type: 'init', config: {}, capabilities: { appDirectory: 'C:\\Terminal Grid\\' } });
+    await page.locator('#flowButton').click();
+    await page.locator('#testCaseButton').click();
+    assert.equal(await page.locator('#defaultTestCase option').count(), 9);
+    await reset();
+    for (const code of ['NAN-PING', 'NAN-PING-2']) {
+      await page.locator('#defaultTestCase').selectOption('NAN-PING');
+      await page.locator('#addDefaultTestCase').click();
+      assert.equal(await page.locator('#nanTool').inputValue(), 'ping');
+      await page.locator('#nanDut1').fill('USB1');
+      await page.locator('#nanDut2').fill('USB2');
+      await page.locator('#nanForm button[type="submit"]').click();
+      assert.equal(await page.locator('#testCaseCode').inputValue(), code);
+      assert.equal(await page.locator('#testCaseUsb').inputValue(), '2');
+      assert.ok(await page.locator('#testCaseFlow').inputValue());
+    }
+    await page.locator('#defaultTestCase').selectOption('AP-CONNECTED');
+    await page.locator('#addDefaultTestCase').click();
+    const apRequest = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').at(-1));
+    await emit({ type: 'commandTargets', requestId: apRequest.requestId, candidates: [checkedUsb('USB1')], adbPath: 'C:\\Tools\\adb.exe' });
+    assert.equal(await page.locator('#apTestSerial').inputValue(), 'USB1');
+    await page.locator('#apTestSsid').fill('Lab Test AP');
+    await page.locator('#apTestForm button[type="submit"]').click();
+    assert.equal(await page.locator('#testCaseCode').inputValue(), 'AP-CONNECTED');
+    assert.equal(await page.locator('#testCaseUsb').inputValue(), '1');
+    assert.ok(await page.locator('#testCaseFlow').inputValue());
+    assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
+    pass('Default TC creates independent NAN copies and a linked AP flow without executing terminal commands');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

@@ -1,4 +1,10 @@
-# Terminal Grid 3.19.0
+# Terminal Grid 3.19.1
+
+- 本機測項新增八個 Default 範本，涵蓋 NAN／NDP IPv6 Ping、Ping 後選傳輸、固定 iperf3／iperf 2／Quick Share、重插重建，以及 AP 連線與斷線。
+- 範本儲存為獨立的本機測項、工作區與流程，可再編輯或加入批次佇列。先預檢 USB 裝置並預覽，再執行。
+- Quick Share 與固定 iperf 流程會先等到本輪 Ping 回覆。AP 範本用 ADB 和 Python 3.9+ 驗證人工切換結果。
+
+## Terminal Grid 3.19.0
 
 - 本機測項支援 CSV／TSV 預覽匯入及勾選續跑，每題確認前後核對裝置，失敗或取消時停止。
 - 可用人工提示準備及保存手機 Log，在選定資料夾為各終端持續保存逐行時間戳紀錄。

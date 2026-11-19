@@ -7,18 +7,20 @@
   }
   function create(v) {
     var choose = v.tool === 'choose', usePython = choose && !!v.usePython;
+    var pingOnly = v.tool === 'ping', traffic = !pingOnly && v.tool !== 'share';
     ['dut1', 'dut2'].forEach(function (k) { if (!/^[A-Za-z0-9_.:\[\]%-]{1,128}$/.test(v[k])) throw Error('請選擇或填入有效的 DUT1／DUT2 序號。'); });
     if (v.dut1 === v.dut2) throw Error('DUT1 與 DUT2 必須是不同手機。');
     ['if1', 'if2'].forEach(function (k) { if (!/^[A-Za-z0-9_.-]{1,32}$/.test(v[k])) throw Error('請填入有效介面名稱，例如 aware_data0。'); });
-    [v.bin1, v.bin2].forEach(validateToolPath);
-    if (choose ? !/^[1-9][0-9]{0,11}$/.test(v.amount) : !/^[1-9][0-9]{0,11}[KMG]?$/.test(v.amount))
+    if (traffic) [v.bin1, v.bin2].forEach(validateToolPath);
+    if (traffic && (choose ? !/^[1-9][0-9]{0,11}$/.test(v.amount) : !/^[1-9][0-9]{0,11}[KMG]?$/.test(v.amount)))
       throw Error(choose ? '傳輸量請以 bytes 填寫，例如 1300000000。' : '傳輸量請填 1300M 或 1300000000 等正整數。');
-    if (!/^\d+$/.test(v.port) || +v.port < 1 || +v.port > 65535) throw Error('Port 必須介於 1–65535。');
-    if (['choose', 'iperf3', 'iperf', 'share'].indexOf(v.tool) < 0) throw Error('請選測試模式。');
+    if (traffic && (!/^\d+$/.test(v.port) || +v.port < 1 || +v.port > 65535)) throw Error('Port 必須介於 1–65535。');
+    if (['choose', 'iperf3', 'iperf', 'share', 'ping'].indexOf(v.tool) < 0) throw Error('請選測試模式。');
     if (/[\x00-\x1f"]/.test(v.folder)) throw Error('工具資料夾不可包含引號或控制字元。');
     var pythonPath = usePython ? (v.pythonPath || '') : '';
     if (usePython && (typeof pythonPath !== 'string' || /[\x00-\x1f"]/.test(pythonPath))) throw Error('Python 執行檔路徑不可包含引號或控制字元。');
     var primary = Object.assign({}, v, { tool: v.tool === 'iperf' ? 'iperf' : 'iperf3' });
+    if (!traffic) Object.assign(primary, { bin1: 'iperf3', bin2: 'iperf3', amount: '1300000000', port: '5201' });
     function tab(name, mode, options, id) {
       var settings = options || primary;
       var args = ['dut1', 'dut2', 'if1', 'if2', 'tool', 'bin1', 'bin2', 'amount', 'port', 'folder'].map(function (key) {
@@ -38,7 +40,7 @@
       groups[4].push(tab('DUT2 · iperf 2 Traffic', 'traffic', iperf2, 'nan-traffic-iperf2'));
       if (usePython) groups[3].push(tab('DUT2 · Python 驗證', 'python-probe'));
     }
-    var modeName = choose ? 'Ping 後選擇' : v.tool === 'share' ? 'Quick Share' : v.tool;
+    var modeName = choose ? 'Ping 後選擇' : v.tool === 'share' ? 'Quick Share' : pingOnly ? 'IPv6 Ping' : v.tool;
     var workspace = { name: 'NAN／NDP · ' + modeName, rows: 2, cols: 3, fontSize: 13,
       slots: groups.map(function (tabs) { return { activeTabId: tabs[0].id, tabs: tabs }; }) };
     function start(slot, tabId) { return { action: 'start', slot: slot, tabId: tabId || groups[slot][0].id, delayMs: 100 }; }
@@ -52,7 +54,7 @@
     var beforeTransfer = (v.beforeTransfer || '').trim();
     var afterTransfer = (v.afterTransfer || '').trim();
     var duringTransfer = (v.duringTransfer || '').trim();
-    if (duringTransfer && v.tool === 'share') throw Error('傳輸中檢查點需要 iperf。');
+    if (duringTransfer && !traffic) throw Error('傳輸中檢查點需要 iperf。');
     function addPreparation(steps) {
       if (beforeStart) steps.push(pause('啟動 Wi-Fi Aware 前\n' + beforeStart));
       if (choose || beforeNdp) {
@@ -65,7 +67,7 @@
     addPreparation(steps);
     if (usePython) steps.push(start(3, 'nan-python-probe'), { action: 'exit', slot: 3, tabId: 'nan-python-probe', timeoutMs: 40000, retries: 0 });
     steps.push(start(3));
-    if (choose || beforeTransfer) steps.push(waitForPing());
+    steps.push(waitForPing());
     if (beforeTransfer) steps.push(pause('傳輸前\n' + beforeTransfer));
     if (choose) {
       var transfer = { action: 'nanTransfer', slot: 3, tabId: 'nan-ping', text: v.amount };
@@ -77,13 +79,13 @@
     if (duringTransfer && (v.tool === 'iperf3' || v.tool === 'iperf')) {
       steps.splice(steps.length - 1, 0, { action: 'trafficPause', slot: 4, tabId: 'nan-traffic', text: duringTransfer });
     }
-    if (v.tool === 'share') steps.push(pause('Ping 已啟動。請確認第 04 格有回覆，再透過 scrcpy 操作 Quick Share 傳送檔案。確認接收完成後按「繼續」。Ping 會持續；可在第 04 格停止。'));
+    if (v.tool === 'share') steps.push(pause('Ping 已收到回覆。請透過 scrcpy 操作 Quick Share 傳送檔案。確認接收完成後按「繼續」。Ping 會持續；可在第 04 格停止。'));
     if (afterTransfer) steps.push(pause('傳輸完成後\n' + afterTransfer));
     var stopTests = [stop(3), stop(2), stop(4)];
     if (choose) stopTests.push(stop(2, 'nan-server-iperf2'), stop(4, 'nan-traffic-iperf2'));
     if (usePython) stopTests.push(stop(3, 'nan-python-probe'));
     if (v.recovery) {
-      steps.push(pause('透過 APK 中斷 NDP，核對第 04 格 ping 是否失去回覆，必要時按 F8 留下證據。完成後按繼續。'));
+      steps.push(pause('透過測試工具中斷 NDP，核對第 04 格 ping 是否失去回覆，必要時按 F8 留下證據。完成後按繼續。'));
       steps.push.apply(steps, stopTests);
       if (!v.reuseMirrors) steps.push(stop(0), stop(1));
       steps.push(pause('拔除並重插兩台手機。確認 USB 偵錯已重新授權，且仍使用原 DUT 序號。' + (v.reuseMirrors ? '請重新開啟因拔線關閉的 scrcpy。' : '') + '完成後按繼續。'));
@@ -94,7 +96,7 @@
     // Re-running must end only this workspace's old traffic before obtaining a
     // fresh NDP address; a still-running ping must never retain yesterday's IP.
     steps = stopTests.concat(steps);
-    return { format: 'terminal-grid-flow', version: 1, name: workspace.name + (v.tool === 'share' ? '' : ' · ' + v.amount), workspace: workspace, steps: steps };
+    return { format: 'terminal-grid-flow', version: 1, name: workspace.name + (traffic ? ' · ' + v.amount : ''), workspace: workspace, steps: steps };
   }
   root.TerminalGridNan = { create: create };
 }(typeof window === 'undefined' ? globalThis : window));

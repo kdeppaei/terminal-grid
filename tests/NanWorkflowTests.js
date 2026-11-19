@@ -60,4 +60,9 @@ assert.equal(withCheckpoints.steps.filter(s => s.text?.startsWith('傳輸完成�
 const fixedWithCheckpoints = create({ ...v, ...checkpointOptions });
 assert.equal(fixedWithCheckpoints.steps.at(-2).action, 'exit');
 assert.equal(fixedWithCheckpoints.steps.at(-1).text, '傳輸完成後\n' + checkpointOptions.afterTransfer);
+const ping = create({ ...v, tool: 'ping', bin1: '', bin2: '', port: '', amount: '' });
+assert.deepEqual(ping.steps.filter(s => s.action === 'start').map(s => s.tabId), ['nan-mirror1', 'nan-mirror2', 'nan-ping']);
+assert.equal(ping.steps.at(-1).text, 'bytes from');
+assert.equal(create({ ...v, tool: 'ping', recovery: true }).steps.filter(s => s.action === 'output' && s.tabId === 'nan-ping').length, 2);
+assert.ok(flow.steps.findIndex(s => s.action === 'output') < flow.steps.findIndex(s => s.action === 'start' && s.tabId === 'nan-server'));
 console.log('NAN workflow: preset and post-Ping choices, optional Python, preparation order, routing, and validation passed.');
