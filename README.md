@@ -2,6 +2,8 @@
 
 在同一個 Windows 主視窗內，使用多個可直接操作的 CMD／PowerShell 終端。適合同時查看 Ping、DNS 查詢、路由追蹤與其他命令列工具。
 
+**3.20.3** 主畫面新增 **NAN＋Ping**。先儲存兩台 USB 手機和依本機 App 畫面設定的 JSON。之後一鍵預檢雙機、依設定建立 NAN／NDP 並持續 IPv6 Ping，按 Ctrl+C 可停止。手機須可操作，且需 Python 3.9+。
+
 **3.20.2** 手機控制可勾選多台，批次喚醒或開啟 scrcpy。NAN 與 NDP 的 Python 自動操作會先喚醒兩台指定手機。
 
 **3.20.1** NAN 精靈可載入本機 JSON，透過 Python 3.9+ 與 ADB 開啟測試 App，按文字、資源 ID 或無障礙說明辨識控制項。兩台完成 NAN／NDP 後接上 IPv6 Ping。通用範例為 `tools/nan_setup.example.json`。

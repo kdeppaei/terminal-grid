@@ -17,7 +17,7 @@
     <header class="app-header">
       <div class="brand"><span class="brand-mark" aria-hidden="true">›_</span><div><h1>Terminal Grid</h1><p>整合式終端管理器</p></div><span class="local-tag">本機執行</span></div>
       <div class="header-actions">
-        <div class="feature-actions"><button id="flowButton" class="button quiet"><span class="tool-glyph" aria-hidden="true">▷</span>自動化</button><button id="commandButton" class="button quiet"><span class="tool-glyph" aria-hidden="true">⌘</span>指令庫</button><button id="captureButton" class="button quiet" aria-expanded="false" aria-controls="capturePanel"><span class="tool-glyph" aria-hidden="true">▤</span>資料暫存 <span id="captureCount">0</span></button></div>
+        <div class="feature-actions"><button id="flowButton" class="button quiet"><span class="tool-glyph" aria-hidden="true">▷</span>自動化</button><button id="quickNanButton" class="button quiet" title="建立雙機 NAN／NDP 並持續 Ping">NAN＋Ping</button><button id="commandButton" class="button quiet"><span class="tool-glyph" aria-hidden="true">⌘</span>指令庫</button><button id="captureButton" class="button quiet" aria-expanded="false" aria-controls="capturePanel"><span class="tool-glyph" aria-hidden="true">▤</span>資料暫存 <span id="captureCount">0</span></button></div>
         <button id="saveButton" class="button">儲存配置</button>
         <details id="appOptions" class="app-options"><summary class="button quiet" title="配置、右鍵偏好與使用說明">⋯ 更多</summary><div class="app-options-menu">
           <label><input id="showLineEditors" type="checkbox" checked> 顯示每格輸入列</label>
@@ -205,7 +205,8 @@
   <dialog id="nanDialog" class="modal" aria-labelledby="nanTitle"><form id="nanForm">
     <div class="modal-heading"><div><span class="eyebrow">WI-FI AWARE</span><h2 id="nanTitle">NAN／NDP 雙手機流程</h2></div><button type="button" class="icon-button" data-close="nanDialog" aria-label="關閉 NAN 設定">×</button></div>
     <div class="modal-content">
-      <p class="help-note">依提示在兩台手機建立 NDP。DUT2 收到 IPv6 Ping 回覆後，即可選擇傳輸測試。</p>
+      <p id="nanSetupNote" class="help-note">依提示在兩台手機建立 NDP。DUT2 收到 IPv6 Ping 回覆後，即可選擇傳輸測試。</p>
+      <p id="nanQuickNote" class="help-note" hidden>選擇兩台 USB 手機與本機 App 操作設定檔。儲存後，主畫面的 NAN＋Ping 會直接建立連線並持續 Ping。</p>
       <label class="field">ADB／scrcpy 資料夾（已有 adb 在 PATH 可留空）<div class="folder-input-row"><input id="nanFolder" placeholder="選擇含 adb.exe 的資料夾"><button id="nanBrowse" type="button" class="button">選資料夾…</button></div></label>
       <button id="nanDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="nanStatus" role="status" class="help-note"></p>
       <div class="form-two">
@@ -227,12 +228,12 @@
       <div id="nanTrafficBins" class="form-two"><label class="field"><span id="nanBin1Label">DUT1 iperf3 名稱／Android 路徑</span><input id="nanBin1" value="iperf3" required></label><label class="field"><span id="nanBin2Label">DUT2 iperf3 名稱／Android 路徑</span><input id="nanBin2" value="iperf3" required></label></div>
       <div id="nanIperf2Fields" class="form-two"><label class="field">DUT1 iperf 2 名稱／Android 路徑<input id="nanBin1Iperf2" value="iperf"></label><label class="field">DUT2 iperf 2 名稱／Android 路徑<input id="nanBin2Iperf2" value="iperf"></label></div>
       <label class="field"><span id="nanPortLabel">iperf3 Port（iperf 2 使用 5001）</span><input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
-      <label class="field">NAN 手機自動操作設定檔（留空使用人工步驟）
+      <label class="field"><span>NAN 手機自動操作設定檔<span id="nanProfileOptional">（留空使用人工步驟）</span></span>
         <div class="folder-input-row"><input id="nanUiProfile" placeholder="選擇本機 JSON 設定檔"><button id="nanProfileBrowse" type="button" class="button">選檔…</button></div>
       </label>
       <label id="nanPythonOption"><input id="nanUsePython" type="checkbox"> 先執行 Python 雙機驗證（需 Python 3.9+）</label>
       <label class="field" id="nanPythonField" hidden>Python 執行檔路徑（留空使用 PATH）<input id="nanPythonPath" placeholder="C:\Tools\Python\python.exe"></label>
-      <details>
+      <details id="nanCheckpoints">
         <summary>自訂測項的人工檢查點</summary>
         <label class="field">啟動 Wi-Fi Aware 前<textarea id="nanBeforeStart" rows="3" maxlength="4000" placeholder="例如核對兩台裝置的連線狀態及測試環境"></textarea></label>
         <label class="field">建立 NDP 前<textarea id="nanBeforeNdp" rows="3" maxlength="4000" placeholder="例如確認兩台裝置已套用測試所需設定"></textarea></label>
@@ -243,7 +244,7 @@
       </details>
       <p class="help-note">介面填 auto 時，建立 NDP 後偵測兩端 Wi-Fi Aware 介面。每次重啟 Ping／Traffic 都重新查 DUT1 IPv6。% 後使用 DUT2 發送介面。若有多個候選，請手動指定。手機兩端需已有相同系列的 iperf。</p>
       <p class="help-note">Ping 分頁會持續保活，可按 Ctrl+C 停止。Quick Share 由手機操作，實際傳輸路徑依手機決定。</p>
-    </div><div class="modal-actions"><button type="button" class="button quiet" data-close="nanDialog">取消</button><button type="submit" class="button primary">建立工作區與流程</button></div>
+    </div><div class="modal-actions"><button type="button" class="button quiet" data-close="nanDialog">取消</button><button id="saveNanFlow" type="submit" class="button primary">建立工作區與流程</button></div>
   </form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="vendor/xterm.js"></script>

@@ -748,6 +748,58 @@ async function main() {
     assert.deepEqual(uiSetup.filter(s => s.action === 'start').map(s => s.tabId), ['nan-ui-nan', 'nan-ui-ndp', 'nan-ping']);
     assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
     pass('NAN setup JSON picker produces two automatic phone stages and a Ping stage without running them on save');
+    await page.locator('#testCaseDialog [data-close]').click();
+    await page.locator('#flowDialog [data-close]').first().click();
+    await reset();
+    await page.locator('#quickNanButton').click();
+    assert.equal(await page.locator('#nanTool').inputValue(), 'ping');
+    assert.equal(await page.locator('#nanCheckpoints').isVisible(), false);
+    assert.equal(await page.locator('#nanUiProfile').evaluate(input => input.required), true);
+    const quickDevices = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').at(-1));
+    await emit({ type: 'commandTargets', requestId: quickDevices.requestId, candidates: [
+      checkedUsb('USB3'), checkedUsb('USB2'), checkedUsb('USB1')
+    ], adbPath: 'C:\\Tools\\adb.exe' });
+    assert.equal(await page.locator('#nanDut1').inputValue(), 'USB1');
+    assert.equal(await page.locator('#nanDut2').inputValue(), 'USB2');
+    await page.locator('#saveNanFlow').click();
+    const quickConfig = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'save').at(-1).config);
+    assert.equal(quickConfig.testCases.at(-1).feasibility, 'auto');
+    assert.equal(quickConfig.automations.at(-1).steps.some(s => s.action === 'pause'), false);
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start')), false);
+    await emit({ type: 'init', config: quickConfig, capabilities: { appDirectory: 'C:\\Terminal Grid\\' } });
+    await reset();
+    await page.locator('#quickNanButton').click();
+    const missingPair = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'discoverCommandTargets'));
+    await emit({ type: 'commandTargets', requestId: missingPair.requestId, candidates: [checkedUsb('USB1'), checkedUsb('USB3')] });
+    await page.waitForFunction(() => document.getElementById('testCaseStatus').textContent.includes('USB2'));
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start')), false);
+    await page.locator('#testCaseDialog [data-close]').click();
+    await page.evaluate(data => {
+      const f = window.fixture;
+      document.getElementById('testCaseRecordOutput').checked = false;
+      window.chrome.webview.postMessage = m => {
+        f.messages.push(m);
+        if (m.type !== 'start') return;
+        setTimeout(() => {
+          f.emit({ ...m, type: 'started', pid: 1204 });
+          if (m.tabId === 'nan-ping') f.emit({ ...m, type: 'output', data });
+          else f.emit({ ...m, type: 'exited', exitCode: 0 });
+        }, 20);
+      };
+    }, Buffer.from('64 bytes from fe80::10: icmp_seq=1\r\n').toString('base64'));
+    await reset();
+    await page.locator('#quickNanButton').click();
+    const readyPair = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'discoverCommandTargets'));
+    await emit({ type: 'commandTargets', requestId: readyPair.requestId, candidates: [checkedUsb('USB1'), checkedUsb('USB2')] });
+    await page.waitForFunction(() => window.fixture.messages.some(m => m.type === 'runSave' && m.text.includes('結果 流程完成')));
+    assert.deepEqual(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start').map(m => m.tabId)),
+      ['nan-ui-nan', 'nan-ui-ndp', 'nan-ping']);
+    assert.equal(await page.locator('#confirmDialog').isVisible(), false);
+    assert.equal(await page.locator('#flowPauseDialog').isVisible(), false);
+    await page.locator('#quickNanButton').click();
+    assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start').length), 3);
+    assert.equal(await page.locator('.pane[data-status="running"] .pane-name').innerText(), 'DUT2 · Ping 保活');
+    pass('NAN＋Ping remembers the setup, blocks a substituted USB phone, and leaves one persistent Ping after both app stages');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

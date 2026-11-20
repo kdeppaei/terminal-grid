@@ -13,6 +13,7 @@
   var commandDraft = null, draftTarget = null, focusedEditor = null;
   var rightClickMode = 'quick';
   var nanDiscoveryId = null, nanDiscoveryFolder = '', nanPathId = null, nanPathField = '';
+  var nanQuickSetup = false;
   var setupAdb = null;
   var testCaseId = '', testCaseCheck = null, testCasePathId = null, testCaseDirty = false;
   var testCaseQueue = new Set(), testCaseQueueRunning = false;
@@ -51,11 +52,23 @@
     if (flowRunning || flowPreparing) { showToast('請先完成或停止目前流程。'); return; }
     var isDefault = $('testCaseDialog').open;
     if (!$('nanFolder').value.trim()) $('nanFolder').value = readSetup('nan').folder || adbToolsFolder;
-    $('nanTool').disabled = isDefault; $('nanRecovery').disabled = isDefault;
+    $('nanTool').disabled = isDefault || nanQuickSetup; $('nanRecovery').disabled = isDefault || nanQuickSetup;
     if (!isDefault && $('nanForm').dataset.defaultMode) {
       delete $('nanForm').dataset.defaultMode;
       $('nanTool').value = 'choose'; $('nanRecovery').checked = false;
       $('nanAmount').readOnly = false;
+      $('nanTool').dispatchEvent(new Event('change'));
+    }
+    $('nanUiProfile').required = nanQuickSetup;
+    $('nanSetupNote').hidden = nanQuickSetup;
+    $('nanQuickNote').hidden = !nanQuickSetup;
+    $('nanProfileOptional').hidden = nanQuickSetup;
+    $('nanCheckpoints').hidden = nanQuickSetup;
+    $('nanRecovery').parentNode.hidden = nanQuickSetup;
+    $('nanTool').parentNode.parentNode.hidden = nanQuickSetup;
+    $('saveNanFlow').textContent = nanQuickSetup ? '儲存一鍵 NAN＋Ping' : '建立工作區與流程';
+    if (nanQuickSetup) {
+      $('nanTool').value = 'ping'; $('nanRecovery').checked = false;
       $('nanTool').dispatchEvent(new Event('change'));
     }
     $('nanDialog').showModal(); discoverNanDevices();
@@ -1594,7 +1607,7 @@
       }
       $('nanDevices').textContent = '';
       var nanCandidates = Array.isArray(message.candidates) ? message.candidates : [];
-      var defaultsOnly = apOpen || $('testCaseDialog').open;
+      var defaultsOnly = apOpen || nanQuickSetup || $('testCaseDialog').open;
       var devices = defaultsOnly ? window.TerminalGridTestCases.usbDevices(nanCandidates)
         : nanCandidates.filter(function (c) { return c && c.kind === 'device'; }).slice(0, 256);
       if (typeof message.adbPath === 'string' && message.adbPath) setupAdb = { path: message.adbPath, folder: nanDiscoveryFolder };
@@ -1839,7 +1852,39 @@
     if (appConfig.testCases.length >= 256) { showToast('已達 256 個本機測項上限。', true); return false; }
     var item = window.TerminalGridTestCases.makeDefault(preset, appConfig.testCases, '', devices, folder);
     item.id = uid('case');
-    return loadFlowFile(JSON.stringify(data), '', item);
+    if (preset.feasibility) item.feasibility = preset.feasibility;
+    return loadFlowFile(JSON.stringify(data), '', item) ? item : null;
+  }
+  function quickNanSignature(item, flow) {
+    var workspace = flowWorkspace(flow);
+    if (!workspace || item.usbCount !== 2 || testCaseSerials(item.serials).length !== 2) return '';
+    return JSON.stringify([flow.id, workspace.id, item.serials, item.toolsFolder, flow.steps.map(function (step) {
+      var tab = getTabConfig(workspace, step.slot, step.tabId);
+      return [step.action, step.slot, step.tabId, step.text, step.enter, step.delayMs, step.timeoutMs, step.retries,
+        step.failureText, step.duringTransfer,
+        tab && [tab.shell, tab.exe, tab.args, tab.cwd, tab.command, tab.batchFile]];
+    })]);
+  }
+  async function runQuickNan() {
+    if (!hostReady || flowRunning || flowPreparing || confirmation || testCaseCheck || testCaseQueueRunning) return;
+    var saved = readSetup('quickNan');
+    var item = appConfig.testCases.find(function (candidate) { return candidate.id === saved.caseId; });
+    var flow = item && appConfig.automations.find(function (candidate) { return candidate.id === item.flowId; });
+    if (!flow || !saved.signature || quickNanSignature(item, flow) !== saved.signature) {
+      nanQuickSetup = true;
+      $('nanDut1').value = ''; $('nanDut2').value = '';
+      openNanDialog();
+      return;
+    }
+    var ping = getState(flow.workspaceId, 3, 'nan-ping');
+    if (ping && ping.status === 'running') {
+      selectFlowTarget(getView(flow.workspaceId), ping);
+      showToast('持續 Ping 終端正在執行。');
+      return;
+    }
+    currentFlowId = item.flowId;
+    showToast('正在檢查兩台指定的 USB 手機…');
+    await runFlow(Object.assign({}, item), false, true);
   }
   function saveTestCase(event) {
     event.preventDefault();
@@ -2351,7 +2396,7 @@
     }
     throw Error('等待' + (step.action === 'exit' ? '終端正常結束' : '輸出「' + step.text + '」') + '逾時。');
   }
-  async function runFlow(testCase, logChecks) {
+  async function runFlow(testCase, logChecks, quickNan) {
     var flow = currentFlow(); if (!flow || flowRunning || flowPreparing) return;
     flow = JSON.parse(JSON.stringify(flow));
     var workspace = flowWorkspace(flow);
@@ -2396,7 +2441,7 @@
       return step.action === 'pause' || step.action === 'wait' ? (i + 1) + '. ' + verb : (i + 1) + '. ' + String(step.slot + 1).padStart(2, '0') + ' 格 / ' + tab.name + ' · ' + verb;
     });
     var caseNotes = testCase && testCase.notes ? '測項說明\n' + testCase.notes + '\n\n' : '';
-    if (!(await askConfirmation('執行「' + (testCase ? testCase.code + ' · ' + testCase.title : flow.name) + '」？', caseNotes + '以下步驟會依序送到本機終端：\n\n' + summaryLines.join('\n') + '\n\n請確認目標與指令正確。', '確認執行'))) return;
+    if (!quickNan && !(await askConfirmation('執行「' + (testCase ? testCase.code + ' · ' + testCase.title : flow.name) + '」？', caseNotes + '以下步驟會依序送到本機終端：\n\n' + summaryLines.join('\n') + '\n\n請確認目標與指令正確。', '確認執行'))) return;
     if (testCase) {
       flowPreparing = true;
       var usbError;
@@ -2471,7 +2516,7 @@
       ensureRunCurrent();
       $('flowProgress').textContent = '流程完成';
       completed = true;
-      showToast('流程「' + flow.name + '」已完成。');
+      showToast(quickNan ? '已收到 IPv6 Ping 回覆，Ping 持續執行中。' : '流程「' + flow.name + '」已完成。');
     } catch (error) {
       failedFlowStep = { flowId: flow.id, index: i };
       $('flowProgress').textContent = '第 ' + (i + 1) + ' 步 · ' + error.message;
@@ -3251,6 +3296,11 @@
     $('apTestDiscover').addEventListener('click', discoverNanDevices);
     $('apTestDialog').addEventListener('close', closeFlowSetup);
     $('nanDialog').addEventListener('close', closeFlowSetup);
+    $('nanDialog').addEventListener('close', function () {
+      if (this.open || !nanQuickSetup) return;
+      nanQuickSetup = false;
+      $('nanTool').value = 'choose';
+    });
     ['apTestSerial', 'nanDut1', 'nanDut2'].forEach(function (id) {
       var input = $(id), select = $(id + 'Choices');
       select.addEventListener('change', function () { input.value = select.value; if (!select.value) input.focus(); });
@@ -3299,11 +3349,22 @@
       var adbPath = setupAdbPath(values.folder);
       if (!values.folder && /[\\/]/.test(adbPath)) values.folder = adbPath.replace(/[^\\/]+$/, '');
       try {
+        if (nanQuickSetup) {
+          if (!values.uiProfile) throw Error('一鍵 NAN＋Ping 需要本機手機自動操作設定檔。');
+          Object.assign(values, { tool: 'ping', recovery: false, beforeStart: '', beforeNdp: '',
+            beforeTransfer: '', afterTransfer: '', duringTransfer: '' });
+        }
         var flow = window.TerminalGridNan.create(values);
-        var preset = $('testCaseDialog').open && selectedDefaultTestCase();
+        var preset = nanQuickSetup ? { code: 'NAN-QUICK-PING', title: '自動建立 NAN 並持續 Ping',
+          notes: '依本機設定檔操作兩台手機。收到 IPv6 回覆後持續 Ping。', feasibility: 'auto' }
+          : $('testCaseDialog').open && selectedDefaultTestCase();
         var saved = preset ? createDefaultTestCase(preset, flow, [values.dut1, values.dut2], values.folder)
           : loadFlowFile(JSON.stringify(flow), 'NAN.tgridflow');
         if (!saved) return;
+        if (nanQuickSetup) {
+          saveSetup('quickNan', { caseId: saved.id, signature: quickNanSignature(saved, currentFlow()) });
+          showToast('已儲存。下次按 NAN＋Ping 會先檢查兩台 USB 手機，再直接執行。');
+        }
         saveSetup('nan', { devices: [values.dut1, values.dut2], folder: values.folder, uiProfile: values.uiProfile, pythonPath: values.pythonPath });
         if (['choose', 'iperf3', 'iperf'].includes(values.tool)) {
           saveSetup(values.tool === 'iperf' ? 'iperf' : 'iperf3', { bin1: values.bin1, bin2: values.bin2, port: values.port });
@@ -3424,6 +3485,7 @@
     $('importButton').addEventListener('click', function () { if (hostReady) { invalidateFolderRequests(); send({ type: 'import' }); } });
     $('helpButton').addEventListener('click', function () { $('helpDialog').showModal(); });
     $('flowButton').addEventListener('click', function () { renderFlowOptions(); $('flowDialog').showModal(); });
+    $('quickNanButton').addEventListener('click', runQuickNan);
     $('commandButton').addEventListener('click', function () { renderCommandLibrary(); $('commandDialog').showModal(); });
     $('copyButton').addEventListener('click', function () { if (focused) copySelection(focused.state); });
     $('pasteButton').addEventListener('click', function () { if (focused) pasteClipboard(focused.state); });

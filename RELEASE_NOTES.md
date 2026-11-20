@@ -1,4 +1,9 @@
-# Terminal Grid 3.20.2
+# Terminal Grid 3.20.3
+
+- 主畫面新增「NAN＋Ping」。初次儲存雙機與本機 App 操作設定檔，之後一鍵預檢指定 USB 手機、建立 NAN／NDP 並持續 IPv6 Ping。
+- 已在 Ping 時點擊會回到原分頁。手機未就緒時可查看預檢錯誤，手機鎖定時需先解鎖。
+
+## Terminal Grid 3.20.2
 
 - 手機控制保留單台喚醒與開啟 scrcpy，新增多台勾選、批次處理與結果摘要。
 - Python 自動操作在 NAN 和 NDP 各階段開始前先喚醒 DUT1、DUT2。
