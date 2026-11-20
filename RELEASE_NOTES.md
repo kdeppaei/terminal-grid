@@ -1,7 +1,7 @@
-# Terminal Grid 3.19.3
+# Terminal Grid 3.19.4
 
 - 修正部分 ADB 列出已授權手機卻缺少 USB 標記時的預檢。由 Windows 目前連接的 USB 裝置核對序號。
-- Default 選單可沿用既有測項的 ADB 位置。預檢會提示 ADB 在線與 USB 未確認的差異。
+- 預檢會顯示 ADB 查詢失敗或 USB 尚未確認的原因。
 
 ## Terminal Grid 3.19.2
 

@@ -3121,11 +3121,10 @@
       if (!preset || flowRunning || flowPreparing || testCaseCheck) return;
       if (testCaseDirty) { $('testCaseStatus').textContent = '請先儲存或離開目前編輯的測項。'; return; }
       var lastNan = readSetup('nan');
-      var caseFolder = (selectedTestCase() || {}).toolsFolder || '';
       if (preset.state) {
         var lastAp = readSetup('ap');
         $('apTestForm').reset();
-        $('apTestFolder').value = lastAp.folder || lastNan.folder || adbToolsFolder || caseFolder || $('nanFolder').value;
+        $('apTestFolder').value = lastAp.folder || lastNan.folder || adbToolsFolder || $('nanFolder').value;
         $('apTestSsid').value = lastAp.ssid || '';
         $('apTestBssid').value = lastAp.bssid || '';
         $('apTestPython').value = lastAp.python || '';
@@ -3136,7 +3135,7 @@
         $('apTestDialog').showModal(); discoverNanDevices();
         return;
       }
-      var folder = lastNan.folder || adbToolsFolder || caseFolder || $('nanFolder').value;
+      var folder = lastNan.folder || adbToolsFolder || $('nanFolder').value;
       $('nanForm').reset();
       $('nanFolder').value = folder;
       $('nanForm').dataset.defaultMode = 'true';
