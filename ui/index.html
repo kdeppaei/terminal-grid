@@ -296,6 +296,15 @@
       <div class="folder-input-row"><button id="refreshAndroidDevices" type="button" class="button">重新偵測裝置</button><button id="pickAppsAdb" type="button" class="button">選 ADB／scrcpy 資料夾…</button></div>
       <label class="field">ADB 裝置<select id="androidDevice"></select></label>
       <div class="folder-input-row"><button id="openAndroidMirror" type="button" class="button" disabled>開啟 scrcpy</button><button id="wakeAndroidScreen" type="button" class="button" disabled>喚醒螢幕</button></div>
+      <details id="androidBatchPanel" hidden>
+        <summary>多台手機</summary>
+        <div id="androidBatchDevices" class="test-case-queue" role="group" aria-label="選擇要批次操作的裝置"></div>
+        <div class="folder-input-row">
+          <button id="openAndroidBatch" type="button" class="button" disabled>開啟選取的 scrcpy</button>
+          <button id="wakeAndroidBatch" type="button" class="button" disabled>喚醒選取的手機</button>
+        </div>
+        <p id="androidBatchStatus" class="help-note" role="status"></p>
+      </details>
       <label class="field">搜尋套件或 Activity<input id="androidAppSearch" placeholder="例如 com.android.settings"></label>
       <label class="field">可開啟的 App<select id="androidApp" size="7"></select></label>
       <p id="androidAppsStatus" class="help-note" role="status"></p>

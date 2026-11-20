@@ -61,7 +61,7 @@
     $('nanDialog').showModal(); discoverNanDevices();
   }
   var pathCommandTarget = null, pathPickPending = null, targetDiscoveryRequest = null, targetCandidates = [], flowPreparing = false;
-  var adbToolsFolder = '', adbToolsPick = null, appsRequest = null, appsAdbPath = '', appComponents = [];
+  var adbToolsFolder = '', adbToolsPick = null, appsRequest = null, appsBatch = null, appsAdbPath = '', appComponents = [];
   var remoteBrowser = null;
   function refreshTargetOptions() {
     $('pathCommandFields').querySelectorAll('select[data-target-key]').forEach(function (select) {
@@ -123,7 +123,7 @@
     if (!send({ type: 'pickCommandPath', requestId: id, kind: 'folder' })) adbToolsPick = null;
   }
   function requestAndroid(type, extra) {
-    var id = uid('adb-app'), serial = $('androidDevice').value;
+    var id = uid('adb-app'), serial = (extra && extra.serial) || $('androidDevice').value;
     appsRequest = { id: id, type: type, serial: serial, sysdump: !!(extra && extra.sysdump) };
     $('androidAppsStatus').textContent = type === 'androidWake' ? '正在喚醒螢幕…' :
       type === 'androidLaunch' || type === 'androidMirror' ? '正在開啟…' : '正在偵測…';
@@ -131,13 +131,56 @@
       appsRequest = null; $('androidAppsStatus').textContent = '終端引擎尚未就緒。';
     }
     updateAndroidButtons();
+    return !!appsRequest;
   }
   function updateAndroidButtons() {
-    var ready = !!$('androidDevice').value && !appsRequest;
+    var busy = !!appsRequest || !!appsBatch;
+    var ready = !!$('androidDevice').value && !busy;
     $('androidSysdump').disabled = !ready;
     $('openAndroidMirror').disabled = $('wakeAndroidScreen').disabled = !ready;
     $('launchAndroidApp').disabled = !ready || !$('androidApp').value;
-    $('androidDevice').disabled = !!appsRequest;
+    $('androidDevice').disabled = busy;
+    var checks = Array.from($('androidBatchDevices').querySelectorAll('input'));
+    checks.forEach(function (check) { check.disabled = busy; });
+    $('openAndroidBatch').disabled = $('wakeAndroidBatch').disabled = busy || !checks.some(function (check) { return check.checked; });
+    $('refreshAndroidDevices').disabled = $('pickAppsAdb').disabled = !!appsBatch;
+  }
+  function advanceAndroidBatch() {
+    var batch = appsBatch;
+    if (batch.targets.length > batch.done && requestAndroid(batch.type, { serial: batch.targets[batch.done], toolsFolder: batch.folder })) {
+      $('androidBatchStatus').textContent = '正在處理第 ' + (batch.done + 1) + '／' + batch.targets.length + ' 台…';
+      return;
+    }
+    appsBatch = null;
+    var summary = batch.type === 'androidMirror' ? 'scrcpy' : '喚醒';
+    $('androidBatchStatus').textContent = summary + '：' + batch.ok + ' 台完成。' +
+      (batch.already ? ' ' + batch.already + ' 台已有鏡像視窗。' : '') +
+      (batch.done < batch.targets.length ? ' 剩餘裝置未送出。' : '') +
+      (batch.errors.length ? ' 失敗：' + batch.errors.join('；') : '') +
+      (batch.type === 'androidWake' && batch.ok ? ' 若出現鎖定畫面，請在手機上解鎖。' : '');
+    updateAndroidButtons();
+  }
+  function startAndroidBatch(type) {
+    if (appsBatch || appsRequest) return;
+    var targets = Array.from($('androidBatchDevices').querySelectorAll('input:checked')).map(function (check) { return check.value; });
+    if (!targets.length) return;
+    appsBatch = { type: type, targets: targets, folder: appsAdbPath, done: 0, ok: 0, already: 0, errors: [] };
+    advanceAndroidBatch();
+  }
+  function renderAndroidDevices(devices) {
+    var batch = $('androidBatchDevices'), used = new Set();
+    batch.replaceChildren();
+    $('androidBatchStatus').textContent = '';
+    devices.forEach(function (item) {
+      if (!item || typeof item.value !== 'string' || !item.value || used.has(item.value)) return;
+      used.add(item.value);
+      var label = item.label || item.value, check = document.createElement('input'), row = document.createElement('label');
+      $('androidDevice').add(new Option(label, item.value));
+      check.type = 'checkbox'; check.value = item.value;
+      row.append(check, document.createTextNode(' ' + label));
+      batch.append(row);
+    });
+    $('androidBatchPanel').hidden = used.size < 2;
   }
   function renderAndroidApps() {
     var select = $('androidApp'), query = $('androidAppSearch').value.trim().toLowerCase(), previous = select.value;
@@ -149,10 +192,11 @@
     updateAndroidButtons();
   }
   function discoverAndroidAppsDevices() {
-    if (appsRequest && ['androidLaunch', 'androidMirror', 'androidWake'].includes(appsRequest.type)) return;
+    if (appsBatch || (appsRequest && ['androidLaunch', 'androidMirror', 'androidWake'].includes(appsRequest.type))) return;
     var target = batchTarget(null), state = activeState(target.view, target.slot);
     appComponents = []; appsAdbPath = '';
     $('androidDevice').replaceChildren(new Option('選擇裝置', ''));
+    renderAndroidDevices([]);
     renderAndroidApps();
     requestAndroid('discoverCommandTargets', { workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, toolsFolder: adbToolsFolder });
   }
@@ -1491,12 +1535,20 @@
     if (appsRequest && message.requestId === appsRequest.id && ['commandTargets', 'androidActionResult'].includes(message.type)) {
       var request = appsRequest; appsRequest = null;
       if (!$('androidAppsDialog').open) return;
+      if (appsBatch) {
+        appsBatch.done++;
+        if (message.error) appsBatch.errors.push(request.serial + ' · ' + message.error);
+        else if (message.alreadyOpen) appsBatch.already++;
+        else appsBatch.ok++;
+        advanceAndroidBatch();
+        return;
+      }
       if (message.type === 'commandTargets') {
         appsAdbPath = message.adbPath ? message.adbPath.replace(/[^\\/]+$/, '') : adbToolsFolder;
-        var devices = (message.candidates || []).filter(function (item) { return item.kind === 'device'; });
-        devices.forEach(function (item) { $('androidDevice').add(new Option(item.label, item.value)); });
+        var devices = (message.candidates || []).filter(function (item) { return item && item.kind === 'device'; });
+        renderAndroidDevices(devices);
         $('androidAppsStatus').textContent = message.message || '選擇裝置以讀取可開啟的 App。';
-        if (devices.length === 1) { $('androidDevice').value = devices[0].value; loadAndroidApps(); }
+        if ($('androidDevice').options.length === 2) { $('androidDevice').selectedIndex = 1; loadAndroidApps(); }
       } else if (message.error) $('androidAppsStatus').textContent = message.error;
       else if (request.type === 'androidApps') {
         appComponents = Array.isArray(message.components) ? message.components : [];
@@ -2973,7 +3025,10 @@
       if (!hostReady) return;
       $('androidAppsDialog').showModal(); discoverAndroidAppsDevices();
     });
-    $('androidAppsDialog').addEventListener('close', function () { appsRequest = null; });
+    $('androidAppsDialog').addEventListener('close', function () {
+      if (this.open) return;
+      appsRequest = null; appsBatch = null; updateAndroidButtons();
+    });
     $('refreshAndroidDevices').addEventListener('click', discoverAndroidAppsDevices);
     $('pickAppsAdb').addEventListener('click', function () { pickAdbTools($('androidAppsDialog'), discoverAndroidAppsDevices); });
     $('androidDevice').addEventListener('change', loadAndroidApps);
@@ -2983,6 +3038,9 @@
     $('wakeAndroidScreen').addEventListener('click', function () {
       if (!this.disabled) requestAndroid('androidWake', { toolsFolder: appsAdbPath });
     });
+    $('androidBatchDevices').addEventListener('change', updateAndroidButtons);
+    $('openAndroidBatch').addEventListener('click', function () { startAndroidBatch('androidMirror'); });
+    $('wakeAndroidBatch').addEventListener('click', function () { startAndroidBatch('androidWake'); });
     $('androidAppSearch').addEventListener('input', renderAndroidApps);
     $('androidApp').addEventListener('change', updateAndroidButtons);
     $('launchAndroidApp').addEventListener('click', function () {

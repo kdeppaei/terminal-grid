@@ -1,4 +1,9 @@
-# Terminal Grid 3.20.1
+# Terminal Grid 3.20.2
+
+- 手機控制保留單台喚醒與開啟 scrcpy，新增多台勾選、批次處理與結果摘要。
+- Python 自動操作在 NAN 和 NDP 各階段開始前先喚醒 DUT1、DUT2。
+
+## Terminal Grid 3.20.1
 
 - NAN／NDP 精靈可選本機設定檔，透過 Python 依 Android 畫面操作兩台指定 DUT。
 - 支援啟動 App、依按鈕識別點擊、觀察指定畫面與角色分派。雙機點擊前先核對兩台。建立 NDP 後再驗證 IPv6 Ping。

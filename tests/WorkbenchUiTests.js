@@ -21,6 +21,7 @@ async function main() {
   try {
     browser = await chromium.launch({ channel: 'msedge', headless: true });
     page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+    page.setDefaultNavigationTimeout(30000);
     page.setDefaultTimeout(7000); page.on('pageerror', e => errors.push(e.message));
     await page.addInitScript(() => {
       const f = window.fixture = { messages: [], terminals: [], clipboard: '222', reads: 0, writes: [], failWrite: false, deferRead: false };
@@ -515,6 +516,25 @@ async function main() {
     await emit({ type: 'androidActionResult', requestId: sysdump.requestId });
     assert.match(await page.locator('#androidAppsStatus').innerText(), /手動鍵入 \*#9900#/);
     pass('App filtering, component launch and SysDump dialer action stay on the selected device');
+    await page.locator('#androidBatchPanel summary').click();
+    await page.locator('#androidBatchDevices input[value=USB1]').check();
+    await page.locator('#androidBatchDevices input[value=USB2]').check();
+    await reset();
+    await page.locator('#openAndroidBatch').click();
+    const firstBatch = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'androidMirror'));
+    assert.deepEqual(firstBatch.map(m => m.serial), ['USB1']);
+    await emit({ type: 'androidActionResult', requestId: firstBatch[0].requestId, error: 'Fixture unavailable' });
+    const secondBatch = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'androidMirror').at(-1));
+    assert.equal(secondBatch.serial, 'USB2');
+    await emit({ type: 'androidActionResult', requestId: secondBatch.requestId, alreadyOpen: true });
+    assert.match(await page.locator('#androidBatchStatus').innerText(), /1 台已有鏡像視窗.*USB1/);
+    await page.locator('#androidBatchDevices input[value=USB1]').uncheck();
+    await page.locator('#wakeAndroidBatch').click();
+    const batchWake = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'androidWake').at(-1));
+    assert.equal(batchWake.serial, 'USB2');
+    await emit({ type: 'androidActionResult', requestId: batchWake.requestId });
+    assert.match(await page.locator('#androidBatchStatus').innerText(), /1 台完成/);
+    pass('batch device controls target checked phones, continue after per-device failure and report existing mirrors');
     await page.locator('#androidAppsDialog [data-close]').first().click();
     async function openLogPull(name) {
       await page.locator('#appOptions summary').click();

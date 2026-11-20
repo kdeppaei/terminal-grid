@@ -1,9 +1,10 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.20.1', updated: '2026-11-21',
+    version: '3.20.2', updated: '2026-11-21',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['喚醒與多台鏡像', '「更多 → 手機控制／scrcpy」可選一台直接喚醒或開啟。展開「多台手機」勾選裝置，即可批次喚醒或開啟鏡像，並查看執行結果。Python 在 NAN 與 NDP 自動操作的開頭會先喚醒雙機。手機有鎖定時仍需解鎖。'],
         ['Python 操作雙機 NAN／NDP', '從 NAN 精靈選本機手機自動操作設定檔。依 tools/nan_setup.example.json 一次設定兩個測試 App 的啟動元件與按鈕識別。Python 3.9+ 透過 ADB 讀取畫面，在兩台完成設定後等候 IPv6，再接上 Ping。找不到按鈕或符合多個按鈕會停在該步。'],
         ['本機測項設定', '如需保留測項專用操作，填入「建立 NDP 前」或在本機 JSON 加入指定的按鈕步驟。已儲存的舊流程請重新建立才會加入 Python 操作。流程只保存本機 JSON 路徑，測試 App 和設定檔請留在授權環境。'],
         ['USB 預檢相容性', '若 ADB 已列出手機但省略 USB 標記，程式會核對 Windows 目前連接的 USB 裝置序號。若指定的 ADB 資料夾偵測逾時，可清空欄位，使用目前終端資料夾或 PATH 上的 ADB 重新偵測。'],

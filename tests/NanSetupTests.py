@@ -47,6 +47,8 @@ def test():
         assert check.call_count == 2
 
     assert {serial for serial, _, _ in commands} == {"FIXTURE_A", "FIXTURE_B"}
+    assert {role for _, role, cmd in commands[2:4] if cmd == "input keyevent KEYCODE_WAKEUP"} == {"DUT1", "DUT2"}
+    assert all(cmd.startswith("am start") for _, _, cmd in commands[4:6])
     taps = [(index, role) for index, (_, role, cmd) in enumerate(commands) if cmd.startswith("input tap")]
     assert len(taps) == 4
     assert {taps[0][1], taps[1][1]} == {"DUT1", "DUT2"}

@@ -131,6 +131,9 @@ def execute_phase(options, steps):
             pending = [(role, pool.submit(action, devices[role], role)) for role in roles]
             return [(role, future.result()) for role, future in pending]
 
+        print(f"{options.phase.upper()} | waking DUT1, DUT2", flush=True)
+        on_devices(devices, lambda serial, role: adb_query(options.adb, serial, role, "input keyevent KEYCODE_WAKEUP"))
+
         for index, step in enumerate(steps, 1):
             roles = ROLES[step["target"]]
             action = next(key for key in ("launch", "tap", "wait") if key in step)
