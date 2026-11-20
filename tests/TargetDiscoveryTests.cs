@@ -9,6 +9,11 @@ class TargetDiscoveryTests {
         if (!items.Any(i => i.kind == "remote" && i.value == "192.0.2.55") || !items.Any(i => i.kind == "remote" && i.value == "fe80::1234%12")) throw new Exception("TCP/IP targets or scope missing");
         if (!items.Where(i => i.usb).Select(i => i.value).SequenceEqual(new[] { "USB1" })) throw new Exception("USB transport inferred incorrectly");
         if (TargetDiscovery.ParseAdb("").Count != 0) throw new Exception("Empty list");
+        var legacy = TargetDiscovery.ParseAdb("PHONE1 device model:Phone\nPHONE2 device model:Phone\nPHONE3 offline\nPHONE4 device\nemulator-5554 device\n192.0.2.55:5555 device\n");
+        TargetDiscovery.MatchPresentUsb(legacy, new[] { @"USB\VID_1234&PID_5678\phone1", @"USB\VID_1234&PID_5678\PHONE3",
+            @"USB\VID_1234&PID_5678&MI_01\PHONE2", @"BTH\VID_1234&PID_5678\PHONE4", @"USB\VID_1234&PID_5678\PHONE20" });
+        if (!legacy.Where(i => i.usb).Select(i => i.value).SequenceEqual(new[] { "PHONE1" }))
+            throw new Exception("Fallback must require a present USB parent serial and an authorized ADB device");
         var apps = AndroidLaunch.Components("3 activities found:\r\n  com.android.settings/.Settings\r\ncom.test.app/com.test.Main\ncom.test.app/com.test.Main\ncom.bad/.App;reboot");
         if (!apps.SequenceEqual(new[] { "com.android.settings/.Settings", "com.test.app/com.test.Main" })) throw new Exception("Wrong launcher components");
         if (!AndroidLaunch.StartCommand(apps[0], false).EndsWith("-n com.android.settings/.Settings")) throw new Exception("Wrong app target");

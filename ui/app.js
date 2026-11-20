@@ -1566,7 +1566,9 @@
             ? '請核對已填的裝置角色。' : '請從下拉選單指定在線裝置。')
         : !message.adbPath && /找不到 adb\.exe/.test(message.message || '')
           ? '找不到 adb.exe。請按上方「選資料夾…」，選擇含 adb.exe 的 Platform Tools 或 scrcpy 資料夾。'
-          : message.message || '未找到已授權的 USB 手機。請檢查連線與偵錯授權後重新偵測。';
+          : defaultsOnly && nanCandidates.some(function (candidate) { return candidate && candidate.kind === 'device'; })
+            ? 'ADB 有列出在線裝置，但目前無法確認 USB。請檢查手機或遠端桌面的 USB 轉接。'
+            : message.message || '未找到已授權的 USB 手機。請檢查連線與偵錯授權後重新偵測。';
       return;
     }
     if (message.type === 'commandPathPicked' && nanPathId && message.requestId === nanPathId) {
@@ -1814,16 +1816,18 @@
   function finishTestCaseCheck(message) {
     var check = testCaseCheck;
     clearTimeout(check.timer); testCaseCheck = null; updateTestCaseButtons();
-    var usb = new Set((Array.isArray(message.candidates) ? message.candidates : [])
-      .filter(function (candidate) { return candidate.kind === 'device' && candidate.usb === true; })
-      .map(function (candidate) { return candidate.value; }));
+    var online = (Array.isArray(message.candidates) ? message.candidates : [])
+      .filter(function (candidate) { return candidate && candidate.kind === 'device'; });
+    var usb = new Set(window.TerminalGridTestCases.usbDevices(online).map(function (candidate) { return candidate.value; }));
     var missing = testCaseSerials(check.item.serials).filter(function (serial) { return !usb.has(serial); });
     if (message.error) { check.resolve(message.error); return; }
     if (usb.size < check.item.usbCount || missing.length) {
       check.resolve('USB 未就緒。此測項至少需 ' + check.item.usbCount + ' 台，已確認 ' + usb.size + ' 台。' +
         (missing.length ? ' 未確認的指定序號：' + missing.join('、') + '。' : '') +
-        ' 請接上手機、解鎖並確認 USB 偵錯已授權，再按「預檢並執行」。' +
-        (!message.adbPath && message.message ? '\n' + message.message : ''));
+        (online.some(function (candidate) { return !candidate.usb; })
+          ? ' ADB 有列出其他在線裝置，請確認指定手機使用 USB，且遠端桌面已轉接 USB。'
+          : ' 請接上手機、解鎖並確認 USB 偵錯已授權，再按「預檢並執行」。') +
+        (message.message ? '\n' + message.message.trim() : ''));
       return;
     }
     check.resolve('');
@@ -3117,10 +3121,11 @@
       if (!preset || flowRunning || flowPreparing || testCaseCheck) return;
       if (testCaseDirty) { $('testCaseStatus').textContent = '請先儲存或離開目前編輯的測項。'; return; }
       var lastNan = readSetup('nan');
+      var caseFolder = (selectedTestCase() || {}).toolsFolder || '';
       if (preset.state) {
         var lastAp = readSetup('ap');
         $('apTestForm').reset();
-        $('apTestFolder').value = lastAp.folder || lastNan.folder || adbToolsFolder || $('nanFolder').value;
+        $('apTestFolder').value = lastAp.folder || lastNan.folder || adbToolsFolder || caseFolder || $('nanFolder').value;
         $('apTestSsid').value = lastAp.ssid || '';
         $('apTestBssid').value = lastAp.bssid || '';
         $('apTestPython').value = lastAp.python || '';
@@ -3131,7 +3136,7 @@
         $('apTestDialog').showModal(); discoverNanDevices();
         return;
       }
-      var folder = lastNan.folder || adbToolsFolder || $('nanFolder').value;
+      var folder = lastNan.folder || adbToolsFolder || caseFolder || $('nanFolder').value;
       $('nanForm').reset();
       $('nanFolder').value = folder;
       $('nanForm').dataset.defaultMode = 'true';

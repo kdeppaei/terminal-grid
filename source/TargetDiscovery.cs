@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -34,6 +35,43 @@ namespace TerminalGridIntegrated
     }
     public static class TargetDiscovery
     {
+        const uint PresentUsbFlags = 0x00000101; // CM_GETIDLIST_FILTER_PRESENT | CM_GETIDLIST_FILTER_ENUMERATOR
+        const uint BufferSmall = 0x1A; // CR_BUFFER_SMALL
+
+        [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        static extern uint CM_Get_Device_ID_List_SizeW(out uint length, string filter, uint flags);
+
+        [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        static extern uint CM_Get_Device_ID_ListW(string filter, [Out] char[] buffer, uint length, uint flags);
+
+        static IEnumerable<string> PresentUsbIds()
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                uint length;
+                if (CM_Get_Device_ID_List_SizeW(out length, "USB", PresentUsbFlags) != 0 || length == 0 || length > 1048576) break;
+                var buffer = new char[length];
+                uint status = CM_Get_Device_ID_ListW("USB", buffer, length, PresentUsbFlags);
+                if (status == 0) return new string(buffer).Split(new[] { '\0' }, StringSplitOptions.RemoveEmptyEntries);
+                if (status != BufferSmall) break;
+            }
+            return new string[0];
+        }
+
+        internal static void MatchPresentUsb(IEnumerable<TargetCandidate> candidates, IEnumerable<string> instanceIds)
+        {
+            var serials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string id in instanceIds)
+            {
+                // Use the parent device's instance serial. Composite interface
+                // children use MI_nn and can carry a generated instance ID.
+                var match = Regex.Match(id, @"^USB\\VID_[0-9a-f]{4}&PID_[0-9a-f]{4}\\([A-Za-z0-9_.-]{1,128})$", RegexOptions.IgnoreCase);
+                if (match.Success) serials.Add(match.Groups[1].Value);
+            }
+            foreach (var candidate in candidates)
+                if (candidate.kind == "device" && serials.Contains(candidate.value)) candidate.usb = true;
+        }
+
         public static List<TargetCandidate> AndroidAddresses(string text, string serial)
         {
             var result = new List<TargetCandidate>();
@@ -136,8 +174,13 @@ namespace TerminalGridIntegrated
                     if (!process.WaitForExit(5000)) { try { process.Kill(); } catch (InvalidOperationException) { } result.message += " ADB 偵測逾時，可重新偵測或手動輸入。"; return result; }
                     if (!Task.WaitAll(new Task[] { output, error }, 1000)) { result.message += " ADB 輸出逾時。"; return result; }
                     if (process.ExitCode == 0) {
-                        result.candidates.AddRange(ParseAdb(output.Result));
-                        if (!result.candidates.Any(c => c.kind == "device")) result.message += " 沒有已授權且在線的 ADB 裝置，請確認 USB 偵錯授權或重新偵測。";
+                        var devices = ParseAdb(output.Result);
+                        if (devices.Any(c => c.kind == "device" && !c.usb) &&
+                            String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ADB_SERVER_SOCKET")) &&
+                            String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANDROID_ADB_SERVER_ADDRESS")))
+                            MatchPresentUsb(devices, PresentUsbIds());
+                        result.candidates.AddRange(devices);
+                        if (!devices.Any(c => c.kind == "device")) result.message += " 沒有已授權且在線的 ADB 裝置，請確認 USB 偵錯授權或重新偵測。";
                     }
                     else result.message += " ADB 無法列出裝置，請確認偵錯授權或手動輸入。";
                 }
