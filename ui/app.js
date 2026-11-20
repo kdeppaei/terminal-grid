@@ -13,7 +13,7 @@
   var commandDraft = null, draftTarget = null, focusedEditor = null;
   var rightClickMode = 'quick';
   var nanDiscoveryId = null, nanDiscoveryFolder = '', nanPathId = null;
-  var apDiscoveredAdb = null;
+  var setupAdb = null;
   var testCaseId = '', testCaseCheck = null, testCasePathId = null, testCaseDirty = false;
   var testCaseQueue = new Set(), testCaseQueueRunning = false;
   var flowRecordingFolder = '', flowRecordingPick = null;
@@ -27,13 +27,22 @@
   var completionMenu, completionHistory = [], completionCatalog, completionCommands = [], completionLiterals = [];
   var personalPackId = 'personal-favorites';
   var commandDragType = 'application/x-terminalgrid-command', literalDragType = 'application/x-terminalgrid-literal';
+  function readSetup(kind) {
+    try { return JSON.parse(localStorage.getItem('terminalGrid.setup.' + kind)) || {}; }
+    catch (_) { return {}; }
+  }
+  function saveSetup(kind, values) {
+    try { localStorage.setItem('terminalGrid.setup.' + kind, JSON.stringify(values)); } catch (_) { }
+  }
+  function setupAdbPath(folder) { return setupAdb && setupAdb.folder === folder ? setupAdb.path : ''; }
   function discoverNanDevices() {
     if (!hostReady || !activeView) return;
     var state = focused ? focused.state : activeState(activeView, 0);
     var prefix = $('apTestDialog').open ? 'apTest' : 'nan';
     nanDiscoveryId = uid('nan-devices');
     nanDiscoveryFolder = $(prefix + 'Folder').value.trim();
-    if (prefix === 'apTest') apDiscoveredAdb = null;
+    setupAdb = null;
+    (prefix === 'apTest' ? ['apTestSerial'] : ['nanDut1', 'nanDut2']).forEach(function (id) { $(id + 'Choices').hidden = true; });
     $('nanDevices').replaceChildren();
     $(prefix + 'Status').textContent = '正在偵測已授權的 ADB 手機…';
     send({ type: 'discoverCommandTargets', requestId: nanDiscoveryId, workspaceId: state.workspaceId, slot: state.slot, tabId: state.tabId, toolsFolder: nanDiscoveryFolder });
@@ -41,6 +50,7 @@
   function openNanDialog() {
     if (flowRunning || flowPreparing) { showToast('請先完成或停止目前流程。'); return; }
     var isDefault = $('testCaseDialog').open;
+    if (!$('nanFolder').value.trim()) $('nanFolder').value = readSetup('nan').folder || adbToolsFolder;
     $('nanTool').disabled = isDefault; $('nanRecovery').disabled = isDefault;
     if (!isDefault && $('nanForm').dataset.defaultMode) {
       delete $('nanForm').dataset.defaultMode;
@@ -1532,18 +1542,31 @@
       }
       $('nanDevices').textContent = '';
       var nanCandidates = Array.isArray(message.candidates) ? message.candidates : [];
-      var devices = nanCandidates.filter(function (c) { return c.kind === 'device'; }).slice(0, 256);
-      if (apOpen && message.adbPath) apDiscoveredAdb = { path: message.adbPath, folder: nanDiscoveryFolder };
+      var defaultsOnly = apOpen || $('testCaseDialog').open;
+      var devices = defaultsOnly ? window.TerminalGridTestCases.usbDevices(nanCandidates)
+        : nanCandidates.filter(function (c) { return c && c.kind === 'device'; }).slice(0, 256);
+      if (typeof message.adbPath === 'string' && message.adbPath) setupAdb = { path: message.adbPath, folder: nanDiscoveryFolder };
       devices.forEach(function (c) { $('nanDevices').appendChild(new Option(c.label, c.value)); });
-      if (apOpen && devices.length === 1 && !$('apTestSerial').value) $('apTestSerial').value = devices[0].value;
-      if (!apOpen && devices.length === 2 && !$('nanDut1').value && !$('nanDut2').value) {
-        $('nanDut1').value = devices[0].value; $('nanDut2').value = devices[1].value;
-      }
+      var fields = apOpen ? ['apTestSerial'] : ['nanDut1', 'nanDut2'];
+      var remembered = readSetup(apOpen ? 'ap' : 'nan').devices;
+      var preferred = window.TerminalGridTestCases.chooseDevices(devices, defaultsOnly ? remembered : null, fields.length);
+      var current = fields.map(function (id) { return $(id).value.trim(); });
+      if (!current.some(Boolean) && preferred.length) current = preferred;
+      fields.forEach(function (id, index) {
+        var input = $(id), select = $(id + 'Choices');
+        input.value = current[index];
+        select.replaceChildren(new Option('選擇手機或手動輸入序號', ''));
+        devices.forEach(function (device) { select.add(new Option(device.label || device.value, device.value)); });
+        select.value = devices.some(function (device) { return device.value === input.value; }) ? input.value : '';
+        select.hidden = !devices.length;
+      });
       $(apOpen ? 'apTestStatus' : 'nanStatus').textContent = devices.length
-        ? '找到 ' + devices.length + ' 台已授權手機。' + (apOpen ? '請核對要驗證的裝置序號。' : '請核對 DUT1 與 DUT2 序號。')
+        ? '找到 ' + devices.length + ' 台已授權' + (defaultsOnly ? ' USB' : '') + ' 手機。' +
+          (current.every(function (serial) { return devices.some(function (device) { return device.value === serial; }); })
+            ? '請核對已填的裝置角色。' : '請從下拉選單指定在線裝置。')
         : !message.adbPath && /找不到 adb\.exe/.test(message.message || '')
           ? '找不到 adb.exe。請按上方「選資料夾…」，選擇含 adb.exe 的 Platform Tools 或 scrcpy 資料夾。'
-          : message.message || '未找到已授權的手機。請檢查 USB 連線與偵錯授權後重新偵測。';
+          : message.message || '未找到已授權的 USB 手機。請檢查連線與偵錯授權後重新偵測。';
       return;
     }
     if (message.type === 'commandPathPicked' && nanPathId && message.requestId === nanPathId) {
@@ -3093,23 +3116,35 @@
       var preset = selectedDefaultTestCase();
       if (!preset || flowRunning || flowPreparing || testCaseCheck) return;
       if (testCaseDirty) { $('testCaseStatus').textContent = '請先儲存或離開目前編輯的測項。'; return; }
+      var lastNan = readSetup('nan');
       if (preset.state) {
-        apDiscoveredAdb = null;
+        var lastAp = readSetup('ap');
         $('apTestForm').reset();
-        $('apTestFolder').value = $('nanFolder').value;
+        $('apTestFolder').value = lastAp.folder || lastNan.folder || adbToolsFolder || $('nanFolder').value;
+        $('apTestSsid').value = lastAp.ssid || '';
+        $('apTestBssid').value = lastAp.bssid || '';
+        $('apTestPython').value = lastAp.python || '';
+        $('apTestTimeout').value = lastAp.timeout || '30';
         $('apTestTitle').textContent = preset.title;
         $('apTestTarget').hidden = preset.state !== 'connected';
         $('apTestSsid').required = preset.state === 'connected';
         $('apTestDialog').showModal(); discoverNanDevices();
         return;
       }
-      var folder = $('nanFolder').value;
+      var folder = lastNan.folder || adbToolsFolder || $('nanFolder').value;
       $('nanForm').reset();
       $('nanFolder').value = folder;
       $('nanForm').dataset.defaultMode = 'true';
       $('nanTool').value = preset.tool;
       $('nanRecovery').checked = !!preset.recovery;
       $('nanAmount').readOnly = ['iperf3', 'iperf'].includes(preset.tool);
+      var tool = readSetup(preset.tool === 'iperf' ? 'iperf' : 'iperf3');
+      var tool2 = readSetup('iperf');
+      ['Bin1', 'Bin2', 'Port'].forEach(function (key) {
+        if (tool[key.toLowerCase()]) $('nan' + key).value = tool[key.toLowerCase()];
+      });
+      if (tool2.bin1) $('nanBin1Iperf2').value = tool2.bin1;
+      if (tool2.bin2) $('nanBin2Iperf2').value = tool2.bin2;
       syncNanToolFields(); openNanDialog();
     });
     $('apTestForm').addEventListener('submit', function (event) {
@@ -3121,10 +3156,16 @@
         var value = $('apTest' + key).value;
         values[key.toLowerCase()] = key === 'Ssid' ? value : value.trim();
       });
-      if (apDiscoveredAdb && apDiscoveredAdb.folder === values.folder) values.adbPath = apDiscoveredAdb.path;
+      values.adbPath = setupAdbPath(values.folder);
+      if (!values.folder && /[\\/]/.test(values.adbPath)) values.folder = values.adbPath.replace(/[^\\/]+$/, '');
       try {
         var flow = window.TerminalGridTestCases.createApFlow(preset, values);
-        if (createDefaultTestCase(preset, flow, [values.serial], values.folder)) $('apTestDialog').close();
+        if (createDefaultTestCase(preset, flow, [values.serial], values.folder)) {
+          var lastAp = readSetup('ap');
+          saveSetup('ap', { devices: [values.serial], folder: values.folder, python: values.python, timeout: values.timeout,
+            ssid: preset.state === 'connected' ? values.ssid : lastAp.ssid, bssid: preset.state === 'connected' ? values.bssid : lastAp.bssid });
+          $('apTestDialog').close();
+        }
       } catch (error) { $('apTestStatus').textContent = error.message; }
     });
     function browseFlowTools() {
@@ -3140,6 +3181,13 @@
     $('apTestDiscover').addEventListener('click', discoverNanDevices);
     $('apTestDialog').addEventListener('close', closeFlowSetup);
     $('nanDialog').addEventListener('close', closeFlowSetup);
+    ['apTestSerial', 'nanDut1', 'nanDut2'].forEach(function (id) {
+      var input = $(id), select = $(id + 'Choices');
+      select.addEventListener('change', function () { input.value = select.value; if (!select.value) input.focus(); });
+      input.addEventListener('input', function () {
+        select.value = Array.from(select.options).some(function (option) { return option.value === input.value; }) ? input.value : '';
+      });
+    });
     function syncNanToolFields() {
       var mode = $('nanTool').value, choose = mode === 'choose', family = mode === 'iperf' ? 'iperf' : 'iperf3';
       var traffic = mode !== 'share' && mode !== 'ping';
@@ -3171,12 +3219,22 @@
         beforeTransfer: $('nanBeforeTransfer').value, afterTransfer: $('nanAfterTransfer').value,
         duringTransfer: $('nanDuringTransfer').parentNode.hidden ? '' : $('nanDuringTransfer').value };
       ['Dut1', 'Dut2', 'If1', 'If2', 'Tool', 'Bin1', 'Bin2', 'Amount', 'Port', 'Folder'].forEach(function (key) { values[key.toLowerCase()] = $('nan' + key).value.trim(); });
+      var adbPath = setupAdbPath(values.folder);
+      if (!values.folder && /[\\/]/.test(adbPath)) values.folder = adbPath.replace(/[^\\/]+$/, '');
       try {
         var flow = window.TerminalGridNan.create(values);
         var preset = $('testCaseDialog').open && selectedDefaultTestCase();
         var saved = preset ? createDefaultTestCase(preset, flow, [values.dut1, values.dut2], values.folder)
           : loadFlowFile(JSON.stringify(flow), 'NAN.tgridflow');
         if (!saved) return;
+        saveSetup('nan', { devices: [values.dut1, values.dut2], folder: values.folder });
+        if (['choose', 'iperf3', 'iperf'].includes(values.tool)) {
+          saveSetup(values.tool === 'iperf' ? 'iperf' : 'iperf3', { bin1: values.bin1, bin2: values.bin2, port: values.port });
+        }
+        if (values.tool === 'choose') {
+          var lastIperf2 = readSetup('iperf');
+          saveSetup('iperf', { bin1: values.bin1Iperf2, bin2: values.bin2Iperf2, port: lastIperf2.port || '5001' });
+        }
         ['nanBeforeStart', 'nanBeforeNdp', 'nanBeforeTransfer', 'nanDuringTransfer', 'nanAfterTransfer'].forEach(function (id) { $(id).value = ''; });
         $('nanDialog').close();
       }

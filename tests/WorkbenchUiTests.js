@@ -683,8 +683,20 @@ async function main() {
       await page.locator('#defaultTestCase').selectOption('NAN-PING');
       await page.locator('#addDefaultTestCase').click();
       assert.equal(await page.locator('#nanTool').inputValue(), 'ping');
-      await page.locator('#nanDut1').fill('USB1');
-      await page.locator('#nanDut2').fill('USB2');
+      const request = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').at(-1));
+      await emit({ type: 'commandTargets', requestId: request.requestId, candidates: [
+        checkedUsb('USB3'), checkedUsb('USB2'), checkedUsb('USB1'), { kind: 'device', value: 'LAN1', usb: false }
+      ], adbPath: 'C:\\Tools\\adb.exe' });
+      assert.equal(await page.locator('#nanDut1Choices option[value=LAN1]').count(), 0);
+      if (code === 'NAN-PING') {
+        assert.equal(await page.locator('#nanDut1').inputValue(), '');
+        await page.locator('#nanDut1Choices').selectOption('USB1');
+        await page.locator('#nanDut2Choices').selectOption('USB2');
+      } else {
+        assert.equal(await page.locator('#nanDut1').inputValue(), 'USB1');
+        assert.equal(await page.locator('#nanDut2').inputValue(), 'USB2');
+        assert.equal(request.toolsFolder, 'C:\\Tools\\');
+      }
       await page.locator('#nanForm button[type="submit"]').click();
       assert.equal(await page.locator('#testCaseCode').inputValue(), code);
       assert.equal(await page.locator('#testCaseUsb').inputValue(), '2');
@@ -701,7 +713,7 @@ async function main() {
     assert.equal(await page.locator('#testCaseUsb').inputValue(), '1');
     assert.ok(await page.locator('#testCaseFlow').inputValue());
     assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
-    pass('Default TC creates independent NAN copies and a linked AP flow without executing terminal commands');
+    pass('Default TC reuses confirmed USB roles with a third phone present and carries the ADB folder into the next setup without executing commands');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

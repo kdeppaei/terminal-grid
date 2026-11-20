@@ -1,6 +1,21 @@
 (function (root) {
   'use strict';
   function serials(value) { return Array.from(new Set(value.split(/[\s,，]+/).filter(Boolean))); }
+  function usbDevices(candidates) {
+    var used = new Set();
+    return candidates.filter(function (candidate) {
+      if (!candidate || candidate.kind !== 'device' || candidate.usb !== true ||
+          typeof candidate.value !== 'string' || used.has(candidate.value)) return false;
+      used.add(candidate.value);
+      return true;
+    }).slice(0, 256);
+  }
+  function chooseDevices(devices, remembered, count) {
+    var connected = new Set(devices.map(function (device) { return device.value; }));
+    if (Array.isArray(remembered) && remembered.length === count && new Set(remembered).size === count)
+      return remembered.every(function (serial) { return connected.has(serial); }) ? remembered.slice() : [];
+    return devices.length === count ? Array.from(connected) : [];
+  }
   var defaults = [
     { code: 'NAN-PING', title: 'NAN／NDP IPv6 Ping', tool: 'ping', notes: '手動建立 NDP。自動取得 DUT1 IPv6 與 DUT2 介面，等候本輪 Ping 回覆。' },
     { code: 'NAN-TRANSFER', title: 'NAN／NDP Ping 後選擇傳輸', tool: 'choose', notes: '建立 NDP 後等待 Ping，接著選 iperf3、iperf 2 或 Quick Share。' },
@@ -96,5 +111,6 @@
         flowId: flow ? matching[0].id : '', toolsFolder: get('toolsfolder') };
     });
   }
-  root.TerminalGridTestCases = { parse: parse, serials: serials, defaults: defaults, makeDefault: makeDefault, createApFlow: createApFlow };
+  root.TerminalGridTestCases = { parse: parse, serials: serials, defaults: defaults, makeDefault: makeDefault, createApFlow: createApFlow,
+    usbDevices: usbDevices, chooseDevices: chooseDevices };
 }(typeof window === 'undefined' ? globalThis : window));

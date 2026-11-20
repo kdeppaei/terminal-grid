@@ -1,9 +1,10 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.19.1', updated: '2026-11-20',
+    version: '3.19.2', updated: '2026-11-20',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['Default 自動帶入設定', '開啟 NAN 或 AP 範本會偵測已授權的 USB 手機。從下拉選單確認一次後，仍在線的裝置會照上次角色帶入；若缺少其中一台，請重新選擇。ADB 資料夾、iperf 執行檔，以及 AP 測試參數會在本機保留。'],
         ['Default 測項選單', '從「自動化 → 本機測項（TC）」選 Default 範本。內建 NAN／NDP IPv6 Ping、Ping 後選擇傳輸、iperf3、iperf 2、Quick Share、重插重建，以及 AP 連線與斷線八項。設定裝置後會建立可編輯的本機測項、流程和工作區。按預檢執行或加入批次佇列才會啟動測試。'],
         ['Default 所需的人工操作', '請依提示建立或重建 NDP、選擇 Quick Share 測試檔，或切換 AP。固定 iperf 預設傳送 1.3 GB，兩端需準備相符版本。AP 需 Python 3.9+，用 ADB 檢查 SSID／BSSID 或確認 Wi-Fi 開啟但未連線。移動程式資料夾或換電腦後，請重新建立 AP 範本以更新本機路徑。'],
         ['批次續跑與收證', '本機測項可預覽匯入 UTF-8 CSV 或 TSV。勾選測項後按順序預檢、預覽並執行；失敗或取消時停止。可在每題前後加入手機 Log 提示，為各終端指定同一個資料夾並各自保存逐行時間戳 Log。'],

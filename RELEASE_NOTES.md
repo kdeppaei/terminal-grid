@@ -1,4 +1,10 @@
-# Terminal Grid 3.19.1
+# Terminal Grid 3.19.2
+
+- Default 測項加入 USB 裝置下拉選單，重新偵測後帶入仍在線的上次角色。
+- 本機保留 ADB、iperf 和 AP 設定，減少建立新測項時的輸入。
+- 建立 NDP 的提示補上適用測試工具的雙機 BLE 前置操作。
+
+## Terminal Grid 3.19.1
 
 - 本機測項新增八個 Default 範本，涵蓋 NAN／NDP IPv6 Ping、Ping 後選傳輸、固定 iperf3／iperf 2／Quick Share、重插重建，以及 AP 連線與斷線。
 - 範本儲存為獨立的本機測項、工作區與流程，可再編輯或加入批次佇列。先預檢 USB 裝置並預覽，再執行。

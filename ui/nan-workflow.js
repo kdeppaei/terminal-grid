@@ -48,7 +48,7 @@
     function pause(text) { return { action: 'pause', slot: 0, tabId: groups[0][0].id, text: text }; }
     function waitForPing() { return { action: 'output', slot: 3, tabId: 'nan-ping', text: 'bytes from', timeoutMs: 10000, retries: 2 }; }
     var prepNan = '在兩台手機啟動 Wi-Fi Aware。若測項需要在連線前套用設定，請保持兩台尚未建立 NDP。';
-    var prepNdp = '依測試工具的提示建立 NDP。由 DUT1 發布、DUT2 訂閱，並在 DUT2 選本輪新發現的 DUT1 對端。確認資料路徑已就緒，再按「繼續」讓第 04 格驗證 IPv6。';
+    var prepNdp = '依測試工具的提示建立 NDP。若測試工具要求先啟動 BLE，請先在兩台手機啟動。由 DUT1 發布、DUT2 訂閱，並在 DUT2 選本輪新發現的 DUT1 對端。確認資料路徑已就緒，再按「繼續」讓第 04 格驗證 IPv6。';
     var beforeStart = (v.beforeStart || '').trim();
     var beforeNdp = (v.beforeNdp || '').trim();
     var beforeTransfer = (v.beforeTransfer || '').trim();

@@ -187,7 +187,10 @@
       <p class="help-note">流程會提示你切換 AP，再用 ADB 驗證。需 Python 3.9+ 並保持手機 Wi-Fi 開啟。</p>
       <label class="field">ADB 資料夾<div class="folder-input-row"><input id="apTestFolder" placeholder="留空使用 PATH"><button id="apTestBrowse" type="button" class="button">選資料夾…</button></div></label>
       <button id="apTestDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="apTestStatus" class="help-note" role="status"></p>
-      <label class="field">USB 裝置序號<input id="apTestSerial" list="nanDevices" maxlength="128" required></label>
+      <label class="field">USB 裝置序號
+        <select id="apTestSerialChoices" aria-label="選擇偵測到的 USB 手機" hidden></select>
+        <input id="apTestSerial" list="nanDevices" maxlength="128" required>
+      </label>
       <div id="apTestTarget" class="form-two">
         <label class="field">SSID<input id="apTestSsid" maxlength="32"></label>
         <label class="field">BSSID（選填）<input id="apTestBssid" maxlength="17" placeholder="00:11:22:33:44:55"></label>
@@ -205,7 +208,17 @@
       <p class="help-note">依提示在兩台手機建立 NDP。DUT2 收到 IPv6 Ping 回覆後，即可選擇傳輸測試。</p>
       <label class="field">ADB／scrcpy 資料夾（已有 adb 在 PATH 可留空）<div class="folder-input-row"><input id="nanFolder" placeholder="選擇含 adb.exe 的資料夾"><button id="nanBrowse" type="button" class="button">選資料夾…</button></div></label>
       <button id="nanDiscover" type="button" class="button">偵測 USB／ADB 手機</button><p id="nanStatus" role="status" class="help-note"></p>
-      <div class="form-two"><label class="field">DUT1 · Server<input id="nanDut1" list="nanDevices" required placeholder="序號"></label><label class="field">DUT2 · Client<input id="nanDut2" list="nanDevices" required placeholder="另一台序號"></label></div><datalist id="nanDevices"></datalist>
+      <div class="form-two">
+        <label class="field">DUT1 · 發布端／Server
+          <select id="nanDut1Choices" aria-label="選擇 DUT1" hidden></select>
+          <input id="nanDut1" list="nanDevices" required placeholder="序號">
+        </label>
+        <label class="field">DUT2 · 訂閱端／Client
+          <select id="nanDut2Choices" aria-label="選擇 DUT2" hidden></select>
+          <input id="nanDut2" list="nanDevices" required placeholder="另一台序號">
+        </label>
+      </div>
+      <datalist id="nanDevices"></datalist>
       <div class="form-two"><label class="field">DUT1 查詢介面<input id="nanIf1" list="nanInterfaces" value="auto" required></label><label class="field">DUT2 發送介面（scope）<input id="nanIf2" list="nanInterfaces" value="auto" required></label></div>
       <datalist id="nanInterfaces"><option value="auto">自動偵測（建立 NDP 後）</option></datalist>
       <label><input id="nanReuseMirrors" type="checkbox"> 使用已開啟的 scrcpy 視窗</label>
