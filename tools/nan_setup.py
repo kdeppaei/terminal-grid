@@ -2,6 +2,7 @@
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from fnmatch import fnmatchcase
 import json
 from pathlib import Path
 import re
@@ -16,7 +17,7 @@ from nan_verify import VerificationError, read_device, run_adb, serial_argument,
 PACKAGE = r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+"
 COMPONENT = re.compile(PACKAGE + r"/\.?[A-Za-z_][A-Za-z0-9_.$]*")
 ROLES = {"both": ("DUT1", "DUT2"), "dut1": ("DUT1",), "dut2": ("DUT2",)}
-PROPERTIES = {"text", "resource-id", "content-desc"}
+PROPERTIES = {"text", "resource-id", "content-desc", "text-glob"}
 
 
 class SetupError(Exception):
@@ -25,8 +26,10 @@ class SetupError(Exception):
 
 def valid_selector(value):
     return (isinstance(value, dict) and bool(value) and value.keys() <= PROPERTIES
+            and not {"text", "text-glob"} <= value.keys()
             and all(isinstance(v, str) and v.strip() and len(v) <= 256
-                    and not any(ord(c) < 32 or ord(c) == 127 for c in v) for v in value.values()))
+                    and not any(ord(c) < 32 or ord(c) == 127 for c in v) for v in value.values())
+            and ("text-glob" not in value or any(c.isalnum() for c in value["text-glob"])))
 
 
 def load_profile(path):
@@ -76,8 +79,14 @@ def hierarchy(adb, serial, role):
 def nodes_for(tree, package, selector):
     if tree.tag != "hierarchy" or not len(tree) or any(node.get("package") != package for node in tree):
         return []
+    def matches(node, key, value):
+        if key == "text-glob":
+            label = " ".join(node.get("text", "").split())
+            return bool(label) and fnmatchcase(label, value)
+        return node.get(key) == value
+
     return [node for node in tree.iter("node") if node.get("package") == package
-            and all(node.get(key) == value for key, value in selector.items())]
+            and all(matches(node, key, value) for key, value in selector.items())]
 
 
 def center(node):

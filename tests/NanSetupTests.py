@@ -23,6 +23,8 @@ def test():
     assert len(profile["nan"]) == 3
     assert not nan_setup.valid_selector({"x": "1"})
     assert not nan_setup.valid_selector({"text": "A\nB"})
+    assert not nan_setup.valid_selector({"text": "A", "text-glob": "*A*"})
+    assert not nan_setup.valid_selector({"text-glob": "*"})
     assert not nan_setup.nodes_for(screen(["Start BLE"], "org.example.other"), "org.example.awarelab", {"text": "Start BLE"})
     assert nan_setup.center(fromstring('<node bounds="[0,10][80,50]"/>')) == (40, 30)
     assert nan_setup.center(fromstring('<node bounds="[0,10][0,50]"/>')) is None
@@ -69,6 +71,13 @@ def test():
 
     with patch.object(nan_setup, "hierarchy", return_value=screen(["Stop BLE"])):
         assert nan_setup.resolve_action("test", "FIXTURE_A", "DUT1", steps[1]) is None
+    guard = {"target": "both", "package": "org.example.awarelab",
+             "tap": {"text-glob": "Toggle * link"}, "unless": {"text-glob": "Link ready (*)"}}
+    assert nan_setup.valid_selector(guard["unless"])
+    with patch.object(nan_setup, "hierarchy", return_value=screen(["Toggle data&#10;link", "Link ready (2)"])):
+        assert nan_setup.resolve_action("test", "FIXTURE_A", "DUT1", guard) is None
+    with patch.object(nan_setup, "hierarchy", return_value=screen(["Toggle data&#10;link"])):
+        assert nan_setup.resolve_action("test", "FIXTURE_A", "DUT1", guard) == (40, 30)
     print("NAN UI setup: profile, foreground package, paired actions, ordered roles, idempotence and ambiguity passed.")
 
 

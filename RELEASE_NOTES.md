@@ -1,4 +1,9 @@
-# Terminal Grid 3.20.3
+# Terminal Grid 3.20.4
+
+- App 操作設定檔新增 `text-glob`，可用萬用字元比對含動態值的畫面。搭配 `unless` 與 `wait` 可避免重複按到同一顆開關。
+- 主畫面的一鍵 NAN＋Ping 可在儲存本機雙機設定後建立 NAN／NDP 並保留 IPv6 Ping。
+
+## Terminal Grid 3.20.3
 
 - 主畫面新增「NAN＋Ping」。初次儲存雙機與本機 App 操作設定檔，之後一鍵預檢指定 USB 手機、建立 NAN／NDP 並持續 IPv6 Ping。
 - 已在 Ping 時點擊會回到原分頁。手機未就緒時可查看預檢錯誤，手機鎖定時需先解鎖。
