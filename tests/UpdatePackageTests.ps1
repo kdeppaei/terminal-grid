@@ -8,14 +8,16 @@ New-Item -ItemType Directory -Path $source,$target,$profile -Force | Out-Null
 Expand-Archive -LiteralPath $Package -DestinationPath $source
 $source = Join-Path $source 'TerminalGrid'
 Copy-Item -LiteralPath (Join-Path $source 'TerminalGridIntegrated.exe') -Destination $target
-New-Item -ItemType Directory -Path (Join-Path $target 'ui'),(Join-Path $profile 'WebView2') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $target 'ui'),(Join-Path $target 'tools'),(Join-Path $profile 'WebView2') -Force | Out-Null
 $oldUi = Join-Path $target 'ui\app.js'
 [IO.File]::WriteAllText($oldUi, 'OLD_APPLICATION')
 $layout = Join-Path $profile 'layout.json'
 $extra = Join-Path $target 'my-personal.tgridcmd'
+$nanProfile = Join-Path $target 'tools\nan_setup.local.json'
 $preference = Join-Path $profile 'WebView2\preferences.fixture'
 [IO.File]::WriteAllText($layout, '{"workspaces":[{"name":"keep workspace"}],"commandPacks":[{"name":"keep commands"}],"automations":[{"name":"keep flow"}],"testCases":[{"code":"DEMO-01","notes":"keep local test notes","usbCount":2}]}')
 [IO.File]::WriteAllText($extra, 'PERSONAL_FILE')
+[IO.File]::WriteAllText($nanProfile, 'LOCAL_PHONE_PROFILE')
 [IO.File]::WriteAllText($preference, 'KEEP_UI_PREFERENCES')
 $before = (Get-FileHash -LiteralPath $layout).Hash
 $previousData = $env:TERMINALGRID_DATA_DIR
@@ -27,6 +29,7 @@ try {
     Assert-Update (((Get-FileHash -LiteralPath $layout).Hash -eq $before) -and (Get-Content -LiteralPath $extra -Raw) -eq 'PERSONAL_FILE' -and (Get-Content -LiteralPath $preference -Raw) -eq 'KEEP_UI_PREFERENCES') 'workspace, commands, flows, local test cases, preferences and extra files preserved'
     Assert-Update (@(Get-ChildItem -LiteralPath (Join-Path $profile 'backups') -File).Count -eq 1) 'configuration backed up before update'
     Assert-Update (@(Get-ChildItem -LiteralPath (Join-Path $target '.updates') -File -Recurse | Where-Object { $_.Name -eq 'app.js' -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'OLD_APPLICATION' }).Count -eq 1) 'previous application files backed up'
+    Assert-Update ((Test-Path -LiteralPath (Join-Path $target 'tools\nan_setup.py')) -and (Test-Path -LiteralPath (Join-Path $target 'tools\nan_setup.example.json')) -and (Get-Content -LiteralPath $nanProfile -Raw) -eq 'LOCAL_PHONE_PROFILE') 'NAN helper and public example installed; local profile preserved'
     [IO.File]::WriteAllText($oldUi, 'ROLLBACK_EXPECTED')
     $lock = [IO.File]::Open((Join-Path $target 'ui\help.js'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
     $rejected = $false
@@ -39,5 +42,5 @@ try {
     $rejected = $false
     try { & (Join-Path $source 'UpdateFromPackage.ps1') -TargetDirectory $target -NoLaunch } catch { $rejected = $true }
     Assert-Update ($rejected -and (Get-Content -LiteralPath $oldUi -Raw) -eq 'ROLLBACK_EXPECTED') 'invalid package path rejected before replacement'
-    Write-Host 'Update package: 6 checks passed in isolated installation/profile; no application launched.'
+    Write-Host 'Update package: 7 checks passed in isolated installation/profile; no application launched.'
 } finally { $env:TERMINALGRID_DATA_DIR = $previousData }

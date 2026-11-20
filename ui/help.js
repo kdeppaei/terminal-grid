@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.20.0', updated: '2026-11-21',
+    version: '3.20.1', updated: '2026-11-21',
     sections: [
       { name: '本版更新', paragraphs: [
         ['Python 操作雙機 NAN／NDP', '從 NAN 精靈選本機手機自動操作設定檔。依 tools/nan_setup.example.json 一次設定兩個測試 App 的啟動元件與按鈕識別。Python 3.9+ 透過 ADB 讀取畫面，在兩台完成設定後等候 IPv6，再接上 Ping。找不到按鈕或符合多個按鈕會停在該步。'],

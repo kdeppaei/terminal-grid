@@ -3203,6 +3203,7 @@
     function syncNanToolFields() {
       var mode = $('nanTool').value, choose = mode === 'choose', family = mode === 'iperf' ? 'iperf' : 'iperf3';
       var traffic = mode !== 'share' && mode !== 'ping';
+      var autoSetup = !!$('nanUiProfile').value.trim();
       if (traffic) {
         ['nanBin1', 'nanBin2'].forEach(function (id) { if (['iperf', 'iperf3'].includes($(id).value)) $(id).value = family; });
         if (['5001', '5201'].includes($('nanPort').value)) $('nanPort').value = family === 'iperf' ? '5001' : '5201';
@@ -3213,7 +3214,8 @@
       $('nanAmountLabel').textContent = choose ? '傳輸量（bytes）' : '傳輸量（-n）';
       $('nanIperf2Fields').hidden = !choose;
       $('nanPythonOption').hidden = !choose;
-      $('nanPythonField').hidden = !$('nanUiProfile').value.trim() && (!choose || !$('nanUsePython').checked);
+      $('nanPythonField').hidden = !autoSetup && (!choose || !$('nanUsePython').checked);
+      $('nanReuseMirrors').parentNode.hidden = autoSetup;
       $('nanTrafficBins').hidden = !traffic;
       ['nanAmount', 'nanPort', 'nanDuringTransfer'].forEach(function (id) { $(id).parentNode.hidden = !traffic; });
       ['nanBin1', 'nanBin2', 'nanAmount', 'nanPort'].forEach(function (id) { $(id).disabled = !traffic; });
@@ -3229,7 +3231,7 @@
       event.preventDefault();
       if (flowRunning || flowPreparing || nanPathId) { showToast('請先完成目前流程或資料夾選擇。'); return; }
       if (appConfig.workspaces.length >= 12 || appConfig.automations.length >= 32) { showToast('工作區或流程已達上限，請先移除不需要的項目。', true); return; }
-      var values = { recovery: $('nanRecovery').checked, reuseMirrors: $('nanReuseMirrors').checked, usePython: $('nanTool').value === 'choose' && $('nanUsePython').checked,
+      var values = { recovery: $('nanRecovery').checked, reuseMirrors: !$('nanReuseMirrors').parentNode.hidden && $('nanReuseMirrors').checked, usePython: $('nanTool').value === 'choose' && $('nanUsePython').checked,
         uiProfile: $('nanUiProfile').value.trim(),
         pythonPath: $('nanPythonPath').value.trim(), bin1Iperf2: $('nanBin1Iperf2').value.trim(), bin2Iperf2: $('nanBin2Iperf2').value.trim(),
         beforeStart: $('nanBeforeStart').value, beforeNdp: $('nanBeforeNdp').value,
