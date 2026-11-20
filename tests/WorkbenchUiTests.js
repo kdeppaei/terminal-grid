@@ -714,6 +714,20 @@ async function main() {
     assert.ok(await page.locator('#testCaseFlow').inputValue());
     assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
     pass('Default TC reuses confirmed USB roles with a third phone present and carries the ADB folder into the next setup without executing commands');
+    await page.locator('#defaultTestCase').selectOption('NAN-PING');
+    await page.locator('#addDefaultTestCase').click();
+    const uiDevices = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').at(-1));
+    await emit({ type: 'commandTargets', requestId: uiDevices.requestId, candidates: [checkedUsb('USB1'), checkedUsb('USB2')], adbPath: 'C:\\Tools\\adb.exe' });
+    await page.locator('#nanProfileBrowse').click();
+    const uiProfilePick = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'pickCommandPath').at(-1));
+    assert.equal(uiProfilePick.kind, 'json');
+    await emit({ type: 'commandPathPicked', requestId: uiProfilePick.requestId, path: 'C:\\Lab\\test-ui.json' });
+    assert.equal(await page.locator('#nanPythonField').isVisible(), true);
+    await page.locator('#nanForm button[type="submit"]').click();
+    const uiSetup = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'save').at(-1).config.automations.at(-1).steps);
+    assert.deepEqual(uiSetup.filter(s => s.action === 'start').map(s => s.tabId), ['nan-ui-nan', 'nan-ui-ndp', 'nan-ping']);
+    assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => ['start', 'input'].includes(m.type)).length), 0);
+    pass('NAN setup JSON picker produces two automatic phone stages and a Ping stage without running them on save');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

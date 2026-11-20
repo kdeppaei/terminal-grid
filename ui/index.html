@@ -227,6 +227,9 @@
       <div id="nanTrafficBins" class="form-two"><label class="field"><span id="nanBin1Label">DUT1 iperf3 名稱／Android 路徑</span><input id="nanBin1" value="iperf3" required></label><label class="field"><span id="nanBin2Label">DUT2 iperf3 名稱／Android 路徑</span><input id="nanBin2" value="iperf3" required></label></div>
       <div id="nanIperf2Fields" class="form-two"><label class="field">DUT1 iperf 2 名稱／Android 路徑<input id="nanBin1Iperf2" value="iperf"></label><label class="field">DUT2 iperf 2 名稱／Android 路徑<input id="nanBin2Iperf2" value="iperf"></label></div>
       <label class="field"><span id="nanPortLabel">iperf3 Port（iperf 2 使用 5001）</span><input id="nanPort" type="number" min="1" max="65535" value="5201" required></label>
+      <label class="field">NAN 手機自動操作設定檔（留空使用人工步驟）
+        <div class="folder-input-row"><input id="nanUiProfile" placeholder="選擇本機 JSON 設定檔"><button id="nanProfileBrowse" type="button" class="button">選檔…</button></div>
+      </label>
       <label id="nanPythonOption"><input id="nanUsePython" type="checkbox"> 先執行 Python 雙機驗證（需 Python 3.9+）</label>
       <label class="field" id="nanPythonField" hidden>Python 執行檔路徑（留空使用 PATH）<input id="nanPythonPath" placeholder="C:\Tools\Python\python.exe"></label>
       <details>

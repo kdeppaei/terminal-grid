@@ -1,4 +1,10 @@
-# Terminal Grid 3.19.4
+# Terminal Grid 3.20.0
+
+- NAN／NDP 精靈可選本機設定檔，透過 Python 依 Android 畫面操作兩台指定 DUT。
+- 支援啟動 App、依按鈕識別點擊、觀察指定畫面與角色分派。雙機點擊前先核對兩台。建立 NDP 後再驗證 IPv6 Ping。
+- 公開包附通用設定檔格式。舊有流程可重新產生，既有人工步驟與選用的 Python Ping 驗證仍可使用。
+
+## Terminal Grid 3.19.4
 
 - 修正部分 ADB 列出已授權手機卻缺少 USB 標記時的預檢。由 Windows 目前連接的 USB 裝置核對序號。
 - 預檢會顯示 ADB 查詢失敗或 USB 尚未確認的原因。

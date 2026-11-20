@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "nan": [
+    { "target": "both", "launch": "org.example.nanlab/.MainActivity" },
+    { "target": "both", "package": "org.example.nanlab", "tap": { "content-desc": "Open navigation menu" } },
+    { "target": "both", "package": "org.example.nanlab", "tap": { "text": "Start NAN" }, "unless": { "text": "Stop NAN" } }
+  ],
+  "ndp": [
+    { "target": "both", "launch": "org.example.awarelab/.MainActivity" },
+    { "target": "both", "package": "org.example.awarelab", "tap": { "text": "Start BLE" }, "unless": { "text": "Stop BLE" } },
+    { "target": "dut1", "package": "org.example.awarelab", "tap": { "text": "Publish" } },
+    { "target": "dut2", "package": "org.example.awarelab", "tap": { "text": "Subscribe" } },
+    { "target": "dut2", "package": "org.example.awarelab", "tap": { "resource-id": "org.example.awarelab:id/peer_name", "text": "LAB-DUT1" } }
+  ]
+}

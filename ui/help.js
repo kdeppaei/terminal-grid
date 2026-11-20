@@ -1,9 +1,11 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.19.4', updated: '2026-11-21',
+    version: '3.20.0', updated: '2026-11-21',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['Python 操作雙機 NAN／NDP', '從 NAN 精靈選本機手機自動操作設定檔。依 tools/nan_setup.example.json 一次設定兩個測試 App 的啟動元件與按鈕識別。Python 3.9+ 透過 ADB 讀取畫面，在兩台完成設定後等候 IPv6，再接上 Ping。找不到按鈕或符合多個按鈕會停在該步。'],
+        ['本機測項設定', '如需保留測項專用操作，填入「建立 NDP 前」或在本機 JSON 加入指定的按鈕步驟。已儲存的舊流程請重新建立才會加入 Python 操作。流程只保存本機 JSON 路徑，測試 App 和設定檔請留在授權環境。'],
         ['USB 預檢相容性', '若 ADB 已列出手機但省略 USB 標記，程式會核對 Windows 目前連接的 USB 裝置序號。若指定的 ADB 資料夾偵測逾時，可清空欄位，使用目前終端資料夾或 PATH 上的 ADB 重新偵測。'],
         ['Default 自動帶入設定', '開啟 NAN 或 AP 範本會偵測已授權的 USB 手機。從下拉選單確認一次後，仍在線的裝置會照上次角色帶入；若缺少其中一台，請重新選擇。ADB 資料夾、iperf 執行檔，以及 AP 測試參數會在本機保留。'],
         ['Default 測項選單', '從「自動化 → 本機測項（TC）」選 Default 範本。內建 NAN／NDP IPv6 Ping、Ping 後選擇傳輸、iperf3、iperf 2、Quick Share、重插重建，以及 AP 連線與斷線八項。設定裝置後會建立可編輯的本機測項、流程和工作區。按預檢執行或加入批次佇列才會啟動測試。'],

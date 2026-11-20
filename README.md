@@ -2,6 +2,8 @@
 
 在同一個 Windows 主視窗內，使用多個可直接操作的 CMD／PowerShell 終端。適合同時查看 Ping、DNS 查詢、路由追蹤與其他命令列工具。
 
+**3.20.0** NAN 精靈可載入本機 JSON，透過 Python 3.9+ 與 ADB 開啟測試 App，按文字、資源 ID 或無障礙說明辨識控制項。兩台完成 NAN／NDP 後接上 IPv6 Ping。通用範例為 `tools/nan_setup.example.json`。
+
 **3.19.4** ADB 在線清單缺少 USB 標記時，預檢會核對 Windows 目前連接的 USB 裝置序號。
 
 **3.19.2** Default 測項開啟時偵測 USB 手機，並沿用上次仍在線的 DUT 角色、ADB 路徑和工具設定。若已記住的手機不在線，請從清單重新指定。

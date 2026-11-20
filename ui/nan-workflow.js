@@ -7,6 +7,7 @@
   }
   function create(v) {
     var choose = v.tool === 'choose', usePython = choose && !!v.usePython;
+    var uiProfile = (v.uiProfile || '').trim(), useMirror = !v.reuseMirrors && !uiProfile;
     var pingOnly = v.tool === 'ping', traffic = !pingOnly && v.tool !== 'share';
     ['dut1', 'dut2'].forEach(function (k) { if (!/^[A-Za-z0-9_.:\[\]%-]{1,128}$/.test(v[k])) throw Error('請選擇或填入有效的 DUT1／DUT2 序號。'); });
     if (v.dut1 === v.dut2) throw Error('DUT1 與 DUT2 必須是不同手機。');
@@ -17,8 +18,10 @@
     if (traffic && (!/^\d+$/.test(v.port) || +v.port < 1 || +v.port > 65535)) throw Error('Port 必須介於 1–65535。');
     if (['choose', 'iperf3', 'iperf', 'share', 'ping'].indexOf(v.tool) < 0) throw Error('請選測試模式。');
     if (/[\x00-\x1f"]/.test(v.folder)) throw Error('工具資料夾不可包含引號或控制字元。');
-    var pythonPath = usePython ? (v.pythonPath || '') : '';
-    if (usePython && (typeof pythonPath !== 'string' || /[\x00-\x1f"]/.test(pythonPath))) throw Error('Python 執行檔路徑不可包含引號或控制字元。');
+    var pythonPath = usePython || uiProfile ? (v.pythonPath || '') : '';
+    if (typeof pythonPath !== 'string' || /[\x00-\x1f"]/.test(pythonPath)) throw Error('Python 執行檔路徑不可包含引號或控制字元。');
+    if (uiProfile && (!/^(?:[A-Za-z]:[\\/]|\\\\)/.test(uiProfile) || !/\.json$/i.test(uiProfile) || /[\x00-\x1f"]/.test(uiProfile)))
+      throw Error('請選擇本機 NAN 手機操作設定檔（.json）。');
     var primary = Object.assign({}, v, { tool: v.tool === 'iperf' ? 'iperf' : 'iperf3' });
     if (!traffic) Object.assign(primary, { bin1: 'iperf3', bin2: 'iperf3', amount: '1300000000', port: '5201' });
     function tab(name, mode, options, id) {
@@ -26,11 +29,13 @@
       var args = ['dut1', 'dut2', 'if1', 'if2', 'tool', 'bin1', 'bin2', 'amount', 'port', 'folder'].map(function (key) {
         return '--' + key + ' ' + quote(settings[key]);
       }).join(' ');
-      if (mode === 'python-probe' && pythonPath) args += ' --python ' + quote(pythonPath);
+      if ((mode === 'python-probe' || mode.startsWith('ui-')) && pythonPath) args += ' --python ' + quote(pythonPath);
+      if (mode.startsWith('ui-')) args += ' --profile ' + quote(uiProfile);
       return { id: id || 'nan-' + mode, name: name, shell: 'Custom', exe: 'TerminalGridNan.exe', args: '--mode ' + mode + ' ' + args, cwd: '', command: '' };
     }
     var groups = [[tab('DUT1 · scrcpy', 'mirror1')], [tab('DUT2 · scrcpy', 'mirror2')], [tab('DUT1 · Server', 'server')],
       [tab('DUT2 · Ping 保活', 'ping')], [tab('DUT2 · Traffic', 'traffic')], [tab('DUT1 · ADB Shell', 'shell1'), tab('DUT2 · ADB Shell', 'shell2')]];
+    if (uiProfile) groups[3].push(tab('雙機 · 啟動 NAN', 'ui-nan'), tab('雙機 · 建立 NDP', 'ui-ndp'));
     if (choose) {
       var iperf2 = Object.assign({}, primary, { tool: 'iperf', bin1: v.bin1Iperf2 || 'iperf', bin2: v.bin2Iperf2 || 'iperf', port: '5001' });
       [iperf2.bin1, iperf2.bin2].forEach(validateToolPath);
@@ -45,6 +50,7 @@
       slots: groups.map(function (tabs) { return { activeTabId: tabs[0].id, tabs: tabs }; }) };
     function start(slot, tabId) { return { action: 'start', slot: slot, tabId: tabId || groups[slot][0].id, delayMs: 100 }; }
     function stop(slot, tabId) { return Object.assign(start(slot, tabId), { action: 'stop' }); }
+    function waitForExit(tabId, timeoutMs) { return { action: 'exit', slot: 3, tabId: tabId, timeoutMs: timeoutMs, retries: 0 }; }
     function pause(text) { return { action: 'pause', slot: 0, tabId: groups[0][0].id, text: text }; }
     function waitForPing() { return { action: 'output', slot: 3, tabId: 'nan-ping', text: 'bytes from', timeoutMs: 10000, retries: 2 }; }
     var prepNan = '在兩台手機啟動 Wi-Fi Aware。若測項需要在連線前套用設定，請保持兩台尚未建立 NDP。';
@@ -57,15 +63,21 @@
     if (duringTransfer && !traffic) throw Error('傳輸中檢查點需要 iperf。');
     function addPreparation(steps) {
       if (beforeStart) steps.push(pause('啟動 Wi-Fi Aware 前\n' + beforeStart));
+      if (uiProfile) {
+        steps.push(start(3, 'nan-ui-nan'), waitForExit('nan-ui-nan', 150000));
+        if (beforeNdp) steps.push(pause('建立 NDP 前\n' + beforeNdp));
+        steps.push(start(3, 'nan-ui-ndp'), waitForExit('nan-ui-ndp', 180000));
+        return;
+      }
       if (choose || beforeNdp) {
         steps.push(pause(prepNan));
         if (beforeNdp) steps.push(pause('建立 NDP 前\n' + beforeNdp));
         steps.push(pause(prepNdp));
       } else steps.push(pause(prepNan + '\n\n' + prepNdp));
     }
-    var steps = v.reuseMirrors ? [] : [start(0), start(1)];
+    var steps = useMirror ? [start(0), start(1)] : [];
     addPreparation(steps);
-    if (usePython) steps.push(start(3, 'nan-python-probe'), { action: 'exit', slot: 3, tabId: 'nan-python-probe', timeoutMs: 40000, retries: 0 });
+    if (usePython) steps.push(start(3, 'nan-python-probe'), waitForExit('nan-python-probe', 40000));
     steps.push(start(3));
     steps.push(waitForPing());
     if (beforeTransfer) steps.push(pause('傳輸前\n' + beforeTransfer));
@@ -82,14 +94,15 @@
     if (v.tool === 'share') steps.push(pause('Ping 已收到回覆。請透過 scrcpy 操作 Quick Share 傳送檔案。確認接收完成後按「繼續」。Ping 會持續；可在第 04 格停止。'));
     if (afterTransfer) steps.push(pause('傳輸完成後\n' + afterTransfer));
     var stopTests = [stop(3), stop(2), stop(4)];
+    if (uiProfile) stopTests.push(stop(3, 'nan-ui-nan'), stop(3, 'nan-ui-ndp'));
     if (choose) stopTests.push(stop(2, 'nan-server-iperf2'), stop(4, 'nan-traffic-iperf2'));
     if (usePython) stopTests.push(stop(3, 'nan-python-probe'));
     if (v.recovery) {
       steps.push(pause('透過測試工具中斷 NDP，核對第 04 格 ping 是否失去回覆，必要時按 F8 留下證據。完成後按繼續。'));
       steps.push.apply(steps, stopTests);
-      if (!v.reuseMirrors) steps.push(stop(0), stop(1));
+      if (useMirror) steps.push(stop(0), stop(1));
       steps.push(pause('拔除並重插兩台手機。確認 USB 偵錯已重新授權，且仍使用原 DUT 序號。' + (v.reuseMirrors ? '請重新開啟因拔線關閉的 scrcpy。' : '') + '完成後按繼續。'));
-      if (!v.reuseMirrors) steps.push(start(0), start(1));
+      if (useMirror) steps.push(start(0), start(1));
       addPreparation(steps);
       steps.push(start(3), waitForPing());
     }

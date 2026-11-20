@@ -65,4 +65,12 @@ assert.deepEqual(ping.steps.filter(s => s.action === 'start').map(s => s.tabId),
 assert.equal(ping.steps.at(-1).text, 'bytes from');
 assert.equal(create({ ...v, tool: 'ping', recovery: true }).steps.filter(s => s.action === 'output' && s.tabId === 'nan-ping').length, 2);
 assert.ok(flow.steps.findIndex(s => s.action === 'output') < flow.steps.findIndex(s => s.action === 'start' && s.tabId === 'nan-server'));
+const automated = create({ ...v, tool: 'ping', uiProfile: 'C:\\Local Test\\setup.json', pythonPath: 'C:\\Python\\python.exe' });
+assert.deepEqual(automated.steps.filter(s => s.action === 'start').map(s => s.tabId), ['nan-ui-nan', 'nan-ui-ndp', 'nan-ping']);
+assert.equal(automated.steps.filter(s => s.action === 'pause').length, 0);
+assert.deepEqual(automated.steps.filter(s => s.action === 'exit').map(s => s.tabId), ['nan-ui-nan', 'nan-ui-ndp']);
+assert.match(automated.workspace.slots[3].tabs[1].args, /--mode ui-nan.*--python "C:\\Python\\python\.exe" --profile "C:\\Local Test\\setup\.json"/);
+const gated = create({ ...runtimeOptions, uiProfile: 'C:\\Local Test\\setup.json', beforeNdp: 'Check test-specific options' });
+assert.equal(gated.steps.findIndex(s => s.action === 'pause'), gated.steps.findIndex(s => s.action === 'exit' && s.tabId === 'nan-ui-nan') + 1);
+assert.throws(() => create({ ...v, uiProfile: 'relative.json' }));
 console.log('NAN workflow: preset and post-Ping choices, optional Python, preparation order, routing, and validation passed.');

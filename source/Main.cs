@@ -16,7 +16,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.19.4.0")]
+[assembly: System.Reflection.AssemblyVersion("3.20.0.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -164,14 +164,19 @@ namespace TerminalGridIntegrated
                 if (type == "pickCommandPath")
                 {
                     string requestId = StringValue(message, "requestId"), kind = StringValue(message, "kind");
-                    if (requestId.Length > 100 || (kind != "file" && kind != "apk" && kind != "folder")) return;
+                    if (requestId.Length > 100 || (kind != "file" && kind != "apk" && kind != "folder" && kind != "json")) return;
                     Ui(delegate {
                         if (folderPickerOpen) { Send(new { type = "commandPathPicked", requestId = requestId, error = "另一個路徑選擇器仍開啟。" }); return; }
                         folderPickerOpen = true;
                         try {
                             string path = null;
                             if (kind == "folder") { using (FolderBrowserDialog dialog = new FolderBrowserDialog { Description = "選擇指令使用的本機資料夾" }) { if (dialog.ShowDialog(this) == DialogResult.OK) path = dialog.SelectedPath; } }
-                            else { using (OpenFileDialog dialog = new OpenFileDialog { Title = "選擇指令使用的本機檔案", CheckFileExists = true, Multiselect = false, Filter = kind == "apk" ? "Android APK (*.apk)|*.apk" : "所有檔案 (*.*)|*.*" }) { if (dialog.ShowDialog(this) == DialogResult.OK) path = dialog.FileName; } }
+                            else {
+                                string filter = kind == "apk" ? "Android APK (*.apk)|*.apk" : kind == "json" ? "JSON 設定檔 (*.json)|*.json" : "所有檔案 (*.*)|*.*";
+                                using (OpenFileDialog dialog = new OpenFileDialog { Title = "選擇本機檔案", CheckFileExists = true, Multiselect = false, Filter = filter }) {
+                                    if (dialog.ShowDialog(this) == DialogResult.OK) path = dialog.FileName;
+                                }
+                            }
                             Send(new { type = "commandPathPicked", requestId = requestId, path = path ?? "", cancelled = path == null });
                         } catch (Exception ex) { Send(new { type = "commandPathPicked", requestId = requestId, error = "無法選擇路徑：" + ex.Message }); }
                         finally { folderPickerOpen = false; }

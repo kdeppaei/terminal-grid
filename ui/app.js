@@ -12,7 +12,7 @@
   var captureCommand = null;
   var commandDraft = null, draftTarget = null, focusedEditor = null;
   var rightClickMode = 'quick';
-  var nanDiscoveryId = null, nanDiscoveryFolder = '', nanPathId = null;
+  var nanDiscoveryId = null, nanDiscoveryFolder = '', nanPathId = null, nanPathField = '';
   var setupAdb = null;
   var testCaseId = '', testCaseCheck = null, testCasePathId = null, testCaseDirty = false;
   var testCaseQueue = new Set(), testCaseQueueRunning = false;
@@ -1573,8 +1573,12 @@
     }
     if (message.type === 'commandPathPicked' && nanPathId && message.requestId === nanPathId) {
       nanPathId = null;
-      var folderInput = $('apTestDialog').open ? $('apTestFolder') : $('nanDialog').open ? $('nanFolder') : null;
-      if (folderInput && !message.cancelled && !message.error && typeof message.path === 'string') { folderInput.value = message.path; discoverNanDevices(); }
+      var pickerDialog = nanPathField === 'apTestFolder' ? 'apTestDialog' : 'nanDialog';
+      if ($(pickerDialog).open && !message.cancelled && !message.error && typeof message.path === 'string') {
+        $(nanPathField).value = message.path;
+        if (nanPathField === 'nanUiProfile') $(nanPathField).dispatchEvent(new Event('input'));
+        else discoverNanDevices();
+      }
       else if (message.error) showToast(message.error, true);
       return;
     }
@@ -3138,6 +3142,8 @@
       var folder = lastNan.folder || adbToolsFolder || $('nanFolder').value;
       $('nanForm').reset();
       $('nanFolder').value = folder;
+      $('nanUiProfile').value = lastNan.uiProfile || '';
+      $('nanPythonPath').value = lastNan.pythonPath || '';
       $('nanForm').dataset.defaultMode = 'true';
       $('nanTool').value = preset.tool;
       $('nanRecovery').checked = !!preset.recovery;
@@ -3172,16 +3178,18 @@
         }
       } catch (error) { $('apTestStatus').textContent = error.message; }
     });
-    function browseFlowTools() {
+    function browseFlowTools(field, kind) {
       if (nanPathId) return;
-      nanPathId = uid('nan-folder');
-      if (!send({ type: 'pickCommandPath', requestId: nanPathId, kind: 'folder' })) nanPathId = null;
+      nanPathField = field;
+      nanPathId = uid('nan-path');
+      if (!send({ type: 'pickCommandPath', requestId: nanPathId, kind: kind })) nanPathId = null;
     }
     function closeFlowSetup() {
       if (!$('nanDialog').open && !$('apTestDialog').open) { nanDiscoveryId = null; nanPathId = null; }
     }
-    $('nanBrowse').addEventListener('click', browseFlowTools);
-    $('apTestBrowse').addEventListener('click', browseFlowTools);
+    $('nanBrowse').addEventListener('click', function () { browseFlowTools('nanFolder', 'folder'); });
+    $('apTestBrowse').addEventListener('click', function () { browseFlowTools('apTestFolder', 'folder'); });
+    $('nanProfileBrowse').addEventListener('click', function () { browseFlowTools('nanUiProfile', 'json'); });
     $('apTestDiscover').addEventListener('click', discoverNanDevices);
     $('apTestDialog').addEventListener('close', closeFlowSetup);
     $('nanDialog').addEventListener('close', closeFlowSetup);
@@ -3205,19 +3213,24 @@
       $('nanAmountLabel').textContent = choose ? '傳輸量（bytes）' : '傳輸量（-n）';
       $('nanIperf2Fields').hidden = !choose;
       $('nanPythonOption').hidden = !choose;
-      $('nanPythonField').hidden = !choose || !$('nanUsePython').checked;
+      $('nanPythonField').hidden = !$('nanUiProfile').value.trim() && (!choose || !$('nanUsePython').checked);
       $('nanTrafficBins').hidden = !traffic;
       ['nanAmount', 'nanPort', 'nanDuringTransfer'].forEach(function (id) { $(id).parentNode.hidden = !traffic; });
       ['nanBin1', 'nanBin2', 'nanAmount', 'nanPort'].forEach(function (id) { $(id).disabled = !traffic; });
     }
     $('nanTool').addEventListener('change', syncNanToolFields);
     $('nanUsePython').addEventListener('change', syncNanToolFields);
+    $('nanUiProfile').addEventListener('input', syncNanToolFields);
+    var lastNanSetup = readSetup('nan');
+    $('nanUiProfile').value = lastNanSetup.uiProfile || '';
+    $('nanPythonPath').value = lastNanSetup.pythonPath || '';
     syncNanToolFields();
     $('nanForm').addEventListener('submit', function (event) {
       event.preventDefault();
       if (flowRunning || flowPreparing || nanPathId) { showToast('請先完成目前流程或資料夾選擇。'); return; }
       if (appConfig.workspaces.length >= 12 || appConfig.automations.length >= 32) { showToast('工作區或流程已達上限，請先移除不需要的項目。', true); return; }
       var values = { recovery: $('nanRecovery').checked, reuseMirrors: $('nanReuseMirrors').checked, usePython: $('nanTool').value === 'choose' && $('nanUsePython').checked,
+        uiProfile: $('nanUiProfile').value.trim(),
         pythonPath: $('nanPythonPath').value.trim(), bin1Iperf2: $('nanBin1Iperf2').value.trim(), bin2Iperf2: $('nanBin2Iperf2').value.trim(),
         beforeStart: $('nanBeforeStart').value, beforeNdp: $('nanBeforeNdp').value,
         beforeTransfer: $('nanBeforeTransfer').value, afterTransfer: $('nanAfterTransfer').value,
@@ -3231,7 +3244,7 @@
         var saved = preset ? createDefaultTestCase(preset, flow, [values.dut1, values.dut2], values.folder)
           : loadFlowFile(JSON.stringify(flow), 'NAN.tgridflow');
         if (!saved) return;
-        saveSetup('nan', { devices: [values.dut1, values.dut2], folder: values.folder });
+        saveSetup('nan', { devices: [values.dut1, values.dut2], folder: values.folder, uiProfile: values.uiProfile, pythonPath: values.pythonPath });
         if (['choose', 'iperf3', 'iperf'].includes(values.tool)) {
           saveSetup(values.tool === 'iperf' ? 'iperf' : 'iperf3', { bin1: values.bin1, bin2: values.bin2, port: values.port });
         }

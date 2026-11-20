@@ -49,6 +49,9 @@ jobs:
       - name: Test Android AP state checks
         shell: pwsh
         run: python -B ./tests/WifiApTests.py
+      - name: Test NAN Android UI setup
+        shell: pwsh
+        run: python -B ./tests/NanSetupTests.py
       - name: Test workbench and TC USB preflight
         shell: pwsh
         run: |
