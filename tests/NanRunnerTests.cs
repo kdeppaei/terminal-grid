@@ -9,6 +9,7 @@ class NanRunnerTests {
     static void Reject(Action action) { try { action(); } catch (Exception) { count++; return; } throw new Exception("Expected rejection"); }
     static void Run(string runner, string folder, string mode, string tool, string scenario, string expected, int code, bool auto = false, string python = null, string amount = "1300M", string profile = null) {
         string[] args = { "--mode", mode, "--dut1", "DUT_ONE", "--dut2", "DUT_TWO", "--if1", auto ? "auto" : "aware_data1", "--if2", auto ? "auto" : "aware_data0", "--tool", tool, "--bin1", "/data/local/tmp/" + tool, "--bin2", "/data/local/tmp/" + tool, "--amount", amount, "--port", tool == "iperf3" ? "5201" : "5001", "--folder", folder };
+        if (mode == "ui-check") args = new[] { "--mode", mode, "--dut1", "DUT_ONE", "--folder", folder };
         if (python != null) args = args.Concat(new[] { "--python", python }).ToArray();
         if (profile != null) args = args.Concat(new[] { "--profile", profile }).ToArray();
         var si = new ProcessStartInfo(runner, String.Join(" ", args.Select(ShellBuilder.Quote))) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -48,6 +49,8 @@ class NanRunnerTests {
             Run(app, tools, "python-probe", "iperf3", "missing-python", "Cannot find Python.", 1, python: Path.Combine(tools, "missing-python.exe"));
             Run(app, tools, "ui-nan", "iperf3", "python-ok", "|--profile|" + profile + "|--phase|nan", 0, python: python, profile: profile);
             Run(app, tools, "ui-ndp", "iperf3", "python-exit", "|--profile|" + profile + "|--phase|ndp", 7, python: python, profile: profile);
+            Run(app, tools, "ui-check", "iperf3", "python-ok", "PYTHON -X|utf8|-B|-u|" + setup + "|--adb|" + adb + "|--dut1|DUT_ONE|--profile|" + profile + "|--phase|check", 0,
+                python: python, profile: profile);
             Run(app, tools, "ui-nan", "iperf3", "invalid-profile", "Select a local NAN UI profile", 1, python: python, profile: "missing.json");
         } finally {
             foreach (string fixture in new[] { script, setup, profile, python, adb, app }) File.Delete(fixture);

@@ -1,4 +1,9 @@
-# Terminal Grid 3.20.4
+# Terminal Grid 3.20.5
+
+- NAN 設定加入「單機預檢」。選取本機 JSON 與一台已授權 USB 手機，即可核對 Python、App 啟動元件和可讀取的畫面。
+- 一鍵 NAN＋Ping 建立前會核對兩個角色對應的在線裝置。只有一台時提示先做單機預檢，接上另一台後可重新偵測。
+
+## Terminal Grid 3.20.4
 
 - App 操作設定檔新增 `text-glob`，可用萬用字元比對含動態值的畫面。搭配 `unless` 與 `wait` 可避免重複按到同一顆開關。
 - 主畫面的一鍵 NAN＋Ping 可在儲存本機雙機設定後建立 NAN／NDP 並保留 IPv6 Ping。

@@ -233,6 +233,10 @@
       </label>
       <label id="nanPythonOption"><input id="nanUsePython" type="checkbox"> 先執行 Python 雙機驗證（需 Python 3.9+）</label>
       <label class="field" id="nanPythonField" hidden>Python 執行檔路徑（留空使用 PATH）<input id="nanPythonPath" placeholder="C:\Tools\Python\python.exe"></label>
+      <div id="nanSingleCheck" hidden>
+        <div class="folder-input-row"><select id="nanCheckDevice" aria-label="單機預檢手機"></select><button id="nanCheckButton" type="button" class="button">單機預檢</button></div>
+        <p id="nanCheckStatus" role="status" class="help-note"></p>
+      </div>
       <details id="nanCheckpoints">
         <summary>自訂測項的人工檢查點</summary>
         <label class="field">啟動 Wi-Fi Aware 前<textarea id="nanBeforeStart" rows="3" maxlength="4000" placeholder="例如核對兩台裝置的連線狀態及測試環境"></textarea></label>

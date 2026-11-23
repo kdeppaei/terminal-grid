@@ -756,7 +756,22 @@ async function main() {
     assert.equal(await page.locator('#nanCheckpoints').isVisible(), false);
     assert.equal(await page.locator('#nanUiProfile').evaluate(input => input.required), true);
     const quickDevices = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').at(-1));
-    await emit({ type: 'commandTargets', requestId: quickDevices.requestId, candidates: [
+    await emit({ type: 'commandTargets', requestId: quickDevices.requestId, candidates: [checkedUsb('USB2')],
+      adbPath: 'C:\\Tools\\adb.exe' });
+    assert.match(await page.locator('#nanStatus').innerText(), /目前只有 1 台/);
+    assert.equal(await page.locator('#saveNanFlow').isDisabled(), true);
+    assert.equal(await page.locator('#nanCheckDevice').inputValue(), 'USB2');
+    await page.locator('#nanCheckButton').click();
+    const check = await page.evaluate(() => window.fixture.messages.find(m => m.type === 'nanCheck'));
+    assert.equal(check.serial, 'USB2');
+    assert.equal(check.profile, 'C:\\Lab\\test-ui.json');
+    assert.equal(check.toolsFolder, 'C:\\Tools\\');
+    await emit({ type: 'nanCheckResult', requestId: check.requestId, report: 'App and screen available.' });
+    assert.match(await page.locator('#nanCheckStatus').innerText(), /預檢完成/);
+    assert.equal(await page.evaluate(() => window.fixture.messages.some(m => m.type === 'start')), false);
+    await page.locator('#nanDiscover').click();
+    const discoveredPair = await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'discoverCommandTargets').at(-1));
+    await emit({ type: 'commandTargets', requestId: discoveredPair.requestId, candidates: [
       checkedUsb('USB3'), checkedUsb('USB2'), checkedUsb('USB1')
     ], adbPath: 'C:\\Tools\\adb.exe' });
     assert.equal(await page.locator('#nanDut1').inputValue(), 'USB1');
@@ -799,7 +814,7 @@ async function main() {
     await page.locator('#quickNanButton').click();
     assert.equal(await page.evaluate(() => window.fixture.messages.filter(m => m.type === 'start').length), 3);
     assert.equal(await page.locator('.pane[data-status="running"] .pane-name').innerText(), 'DUT2 · Ping 保活');
-    pass('NAN＋Ping remembers the setup, blocks a substituted USB phone, and leaves one persistent Ping after both app stages');
+    pass('NAN＋Ping supports a single-device check, blocks an incomplete or substituted pair, and leaves one persistent Ping');
     assert.deepEqual(errors, []);
     console.log('Workbench UI: ' + count + ' groups passed; host and clipboard mocked.');
   } catch (error) { if (errors.length) console.error('Page errors:', errors); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }).catch(() => {}); throw error; }

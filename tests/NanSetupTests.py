@@ -78,6 +78,24 @@ def test():
         assert nan_setup.resolve_action("test", "FIXTURE_A", "DUT1", guard) is None
     with patch.object(nan_setup, "hierarchy", return_value=screen(["Toggle data&#10;link"])):
         assert nan_setup.resolve_action("test", "FIXTURE_A", "DUT1", guard) == (40, 30)
+    launcher_output = ("org.example.nanlab/org.example.nanlab.MainActivity\n"
+                       "org.example.awarelab/.MainActivity\n")
+    with patch.object(nan_setup, "adb_query", return_value=launcher_output) as inspect_apps, \
+            patch.object(nan_setup, "hierarchy", return_value=screen(["Start BLE"])) as inspect_screen:
+        nan_setup.check_device("test", "FIXTURE_A", profile)
+        inspect_apps.assert_called_once()
+        assert inspect_apps.call_args.args[1] == "FIXTURE_A"
+        assert inspect_apps.call_args.args[3].startswith("cmd package query-activities")
+        inspect_screen.assert_called_once_with("test", "FIXTURE_A", "DUT")
+    with patch.object(nan_setup, "adb_query", return_value="org.example.nanlab/.MainActivity"), \
+            patch.object(nan_setup, "hierarchy") as inspect_screen:
+        try:
+            nan_setup.check_device("test", "FIXTURE_A", profile)
+        except nan_setup.SetupError as error:
+            assert "NDP" in str(error)
+        else:
+            raise AssertionError("Missing launcher passed")
+        inspect_screen.assert_not_called()
     print("NAN UI setup: profile, foreground package, paired actions, ordered roles, idempotence and ambiguity passed.")
 
 

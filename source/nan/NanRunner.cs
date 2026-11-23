@@ -45,9 +45,12 @@ public static class NanRunner
             if (!new[] { "mode", "dut1", "dut2", "if1", "if2", "tool", "bin1", "bin2", "amount", "port", "folder", "python", "profile" }.Contains(args[i].TrimStart('-')) || !args[i].StartsWith("--")) throw new ArgumentException("Unknown option: " + args[i]);
             values.Add(args[i].Substring(2), args[i + 1]);
         }
-        foreach (string key in new[] { "mode", "dut1", "dut2", "if1", "if2", "tool", "bin1", "bin2", "amount", "port", "folder" }) if (!values.ContainsKey(key)) throw new ArgumentException("Missing --" + key);
+        foreach (string key in new[] { "mode", "dut1", "folder" }) if (!values.ContainsKey(key)) throw new ArgumentException("Missing --" + key);
+        if (!Regex.IsMatch(values["dut1"], @"^[A-Za-z0-9_.:\[\]%-]{1,128}$")) throw new ArgumentException("Invalid serial.");
+        if (values["mode"] == "ui-check") return values;
+        foreach (string key in new[] { "dut2", "if1", "if2", "tool", "bin1", "bin2", "amount", "port" }) if (!values.ContainsKey(key)) throw new ArgumentException("Missing --" + key);
         if (!new[] { "mirror1", "mirror2", "shell1", "shell2", "server", "ping", "traffic", "python-probe", "ui-nan", "ui-ndp" }.Contains(values["mode"])) throw new ArgumentException("Unknown mode.");
-        foreach (string key in new[] { "dut1", "dut2" }) if (!Regex.IsMatch(values[key], @"^[A-Za-z0-9_.:\[\]%-]{1,128}$")) throw new ArgumentException("Invalid serial.");
+        if (!Regex.IsMatch(values["dut2"], @"^[A-Za-z0-9_.:\[\]%-]{1,128}$")) throw new ArgumentException("Invalid serial.");
         if (values["dut1"] == values["dut2"]) throw new ArgumentException("DUT1 and DUT2 must be different devices.");
         foreach (string key in new[] { "if1", "if2" }) if (!Regex.IsMatch(values[key], @"^[A-Za-z0-9_.-]{1,32}$")) throw new ArgumentException("Invalid interface.");
         foreach (string key in new[] { "bin1", "bin2" }) if (!Regex.IsMatch(values[key], @"^(?:/[A-Za-z0-9_.-]+)+$|^[A-Za-z0-9_][A-Za-z0-9_.-]*$")) throw new ArgumentException("Use a tool name or absolute Android executable path.");
@@ -115,8 +118,9 @@ public static class NanRunner
         bool setup = mode != "python-probe";
         string script = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", setup ? "nan_setup.py" : "nan_verify.py");
         if (!File.Exists(script)) throw new FileNotFoundException("Cannot find the NAN Python helper. Extract the complete Terminal Grid package.");
-        var args = new List<string> { "-B", "-u", script, "--adb", adb, "--dut1", values["dut1"], "--dut2", values["dut2"],
-            "--if1", values["if1"], "--if2", values["if2"] };
+        var args = new List<string> { "-B", "-u", script, "--adb", adb, "--dut1", values["dut1"] };
+        if (mode == "ui-check") args.InsertRange(0, new[] { "-X", "utf8" });
+        if (mode != "ui-check") args.AddRange(new[] { "--dut2", values["dut2"], "--if1", values["if1"], "--if2", values["if2"] });
         if (setup) {
             string profile;
             if (!values.TryGetValue("profile", out profile) || !Path.IsPathRooted(profile) ||
@@ -133,7 +137,7 @@ public static class NanRunner
             var v = Parse(args); string mode = v["mode"], folder = v["folder"];
             if (mode.StartsWith("mirror")) return Run(FindTool("scrcpy", folder), new[] { "-s", v[mode == "mirror1" ? "dut1" : "dut2"], "--window-title", mode == "mirror1" ? "DUT1 - NAN" : "DUT2 - NAN" });
             string adb = FindTool("adb", folder);
-            if (mode == "python-probe" || mode == "ui-nan" || mode == "ui-ndp") return RunPython(adb, v, mode);
+            if (mode == "python-probe" || mode.StartsWith("ui-")) return RunPython(adb, v, mode);
             if (mode.StartsWith("shell")) return Run(adb, new[] { "-s", v[mode == "shell1" ? "dut1" : "dut2"], "shell", "-tt" });
             string serial, command;
             string ipv6Flag = v["tool"] == "iperf3" ? "-6" : "-V";

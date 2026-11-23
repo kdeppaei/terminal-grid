@@ -14,6 +14,7 @@
   var rightClickMode = 'quick';
   var nanDiscoveryId = null, nanDiscoveryFolder = '', nanPathId = null, nanPathField = '';
   var nanQuickSetup = false;
+  var nanUsbDevices = [], nanCheckRequest = null;
   var setupAdb = null;
   var testCaseId = '', testCaseCheck = null, testCasePathId = null, testCaseDirty = false;
   var testCaseQueue = new Set(), testCaseQueueRunning = false;
@@ -36,6 +37,43 @@
     try { localStorage.setItem('terminalGrid.setup.' + kind, JSON.stringify(values)); } catch (_) { }
   }
   function setupAdbPath(folder) { return setupAdb && setupAdb.folder === folder ? setupAdb.path : ''; }
+  function nanCheckOptions() {
+    return { serial: $('nanCheckDevice').value, toolsFolder: $('nanFolder').value.trim(),
+      profile: $('nanUiProfile').value.trim(), python: $('nanPythonPath').value.trim() };
+  }
+  function updateNanChecks() {
+    var options = nanCheckOptions();
+    $('nanSingleCheck').hidden = !nanQuickSetup && !options.profile;
+    $('nanCheckButton').disabled = !options.serial || !options.profile || !setupAdbPath(options.toolsFolder) || !!nanCheckRequest;
+    var duo = [$('nanDut1').value.trim(), $('nanDut2').value.trim()];
+    $('saveNanFlow').disabled = nanQuickSetup && (!options.profile || duo[0] === duo[1] || !setupAdbPath(options.toolsFolder) ||
+      !duo.every(function (serial) { return nanUsbDevices.some(function (device) { return device.value === serial; }); }));
+  }
+  function startNanCheck() {
+    if ($('nanCheckButton').disabled) return;
+    var options = nanCheckOptions();
+    var request = nanCheckRequest = { id: uid('nan-check'), options: options };
+    $('nanCheckStatus').textContent = '正在檢查設定檔、App 與目前畫面…';
+    updateNanChecks();
+    request.timer = setTimeout(function () { finishNanCheck({ requestId: request.id, error: '單機預檢逾時，請重試。' }); }, 30000);
+    var adbFolder = setupAdbPath(options.toolsFolder).replace(/[^\\/]+$/, '');
+    if (!send(Object.assign({}, options, { type: 'nanCheck', requestId: request.id, toolsFolder: adbFolder })))
+      finishNanCheck({ requestId: request.id, error: '無法送出單機預檢。' });
+  }
+  function finishNanCheck(message) {
+    var request = nanCheckRequest;
+    if (!request || request.id !== message.requestId) return;
+    clearTimeout(request.timer);
+    nanCheckRequest = null;
+    updateNanChecks();
+    if (!$('nanDialog').open) return;
+    if (JSON.stringify(request.options) !== JSON.stringify(nanCheckOptions())) {
+      $('nanCheckStatus').textContent = '裝置或設定已變更，請重新預檢。';
+      return;
+    }
+    var result = [message.report, message.error].filter(Boolean).join(' ');
+    $('nanCheckStatus').textContent = (message.error ? '預檢未完成。' : '單機預檢完成。') + result;
+  }
   function discoverNanDevices() {
     if (!hostReady || !activeView) return;
     var state = focused ? focused.state : activeState(activeView, 0);
@@ -43,6 +81,12 @@
     nanDiscoveryId = uid('nan-devices');
     nanDiscoveryFolder = $(prefix + 'Folder').value.trim();
     setupAdb = null;
+    if (prefix === 'nan') {
+      nanUsbDevices = [];
+      $('nanCheckDevice').replaceChildren(new Option('等待偵測 USB 手機', ''));
+      $('nanCheckStatus').textContent = '';
+      updateNanChecks();
+    }
     (prefix === 'apTest' ? ['apTestSerial'] : ['nanDut1', 'nanDut2']).forEach(function (id) { $(id + 'Choices').hidden = true; });
     $('nanDevices').replaceChildren();
     $(prefix + 'Status').textContent = '正在偵測已授權的 ADB 手機…';
@@ -1588,6 +1632,7 @@
     if (message.type === 'commandTargets' && testCaseCheck && message.requestId === testCaseCheck.requestId) {
       finishTestCaseCheck(message); return;
     }
+    if (message.type === 'nanCheckResult') { finishNanCheck(message); return; }
     if (message.type === 'commandPathPicked' && testCasePathId && message.requestId === testCasePathId) {
       testCasePathId = null;
       if ($('testCaseDialog').open && !message.cancelled && !message.error) {
@@ -1608,7 +1653,8 @@
       $('nanDevices').textContent = '';
       var nanCandidates = Array.isArray(message.candidates) ? message.candidates : [];
       var defaultsOnly = apOpen || nanQuickSetup || $('testCaseDialog').open;
-      var devices = defaultsOnly ? window.TerminalGridTestCases.usbDevices(nanCandidates)
+      var usbDevices = window.TerminalGridTestCases.usbDevices(nanCandidates);
+      var devices = defaultsOnly ? usbDevices
         : nanCandidates.filter(function (c) { return c && c.kind === 'device'; }).slice(0, 256);
       if (typeof message.adbPath === 'string' && message.adbPath) setupAdb = { path: message.adbPath, folder: nanDiscoveryFolder };
       devices.forEach(function (c) { $('nanDevices').appendChild(new Option(c.label, c.value)); });
@@ -1625,7 +1671,17 @@
         select.value = devices.some(function (device) { return device.value === input.value; }) ? input.value : '';
         select.hidden = !devices.length;
       });
-      $(apOpen ? 'apTestStatus' : 'nanStatus').textContent = devices.length
+      if (!apOpen) {
+        nanUsbDevices = usbDevices;
+        var checkDevice = $('nanCheckDevice');
+        checkDevice.replaceChildren(new Option('選擇要預檢的 USB 手機', ''));
+        usbDevices.forEach(function (device) { checkDevice.add(new Option(device.label || device.value, device.value)); });
+        if (usbDevices.length === 1) checkDevice.selectedIndex = 1;
+        updateNanChecks();
+      }
+      $(apOpen ? 'apTestStatus' : 'nanStatus').textContent = nanQuickSetup && devices.length === 1
+        ? '目前只有 1 台已授權的 USB 手機。可先做單機預檢，接上第二台後再按「偵測 USB／ADB 手機」。'
+        : devices.length
         ? '找到 ' + devices.length + ' 台已授權' + (defaultsOnly ? ' USB' : '') + ' 手機。' +
           (current.every(function (serial) { return devices.some(function (device) { return device.value === serial; }); })
             ? '請核對已填的裝置角色。' : '請從下拉選單指定在線裝置。')
@@ -3294,6 +3350,13 @@
     $('apTestBrowse').addEventListener('click', function () { browseFlowTools('apTestFolder', 'folder'); });
     $('nanProfileBrowse').addEventListener('click', function () { browseFlowTools('nanUiProfile', 'json'); });
     $('apTestDiscover').addEventListener('click', discoverNanDevices);
+    $('nanCheckButton').addEventListener('click', startNanCheck);
+    ['nanCheckDevice', 'nanFolder', 'nanPythonPath', 'nanUiProfile', 'nanDut1', 'nanDut2'].forEach(function (id) {
+      $(id).addEventListener(id === 'nanCheckDevice' ? 'change' : 'input', function () {
+        $('nanCheckStatus').textContent = '';
+        updateNanChecks();
+      });
+    });
     $('apTestDialog').addEventListener('close', closeFlowSetup);
     $('nanDialog').addEventListener('close', closeFlowSetup);
     $('nanDialog').addEventListener('close', function () {
@@ -3303,7 +3366,11 @@
     });
     ['apTestSerial', 'nanDut1', 'nanDut2'].forEach(function (id) {
       var input = $(id), select = $(id + 'Choices');
-      select.addEventListener('change', function () { input.value = select.value; if (!select.value) input.focus(); });
+      select.addEventListener('change', function () {
+        input.value = select.value;
+        if (id !== 'apTestSerial') updateNanChecks();
+        if (!select.value) input.focus();
+      });
       input.addEventListener('input', function () {
         select.value = Array.from(select.options).some(function (option) { return option.value === input.value; }) ? input.value : '';
       });
@@ -3338,6 +3405,7 @@
     $('nanForm').addEventListener('submit', function (event) {
       event.preventDefault();
       if (flowRunning || flowPreparing || nanPathId) { showToast('請先完成目前流程或資料夾選擇。'); return; }
+      if (nanQuickSetup && $('saveNanFlow').disabled) return;
       if (appConfig.workspaces.length >= 12 || appConfig.automations.length >= 32) { showToast('工作區或流程已達上限，請先移除不需要的項目。', true); return; }
       var values = { recovery: $('nanRecovery').checked, reuseMirrors: !$('nanReuseMirrors').parentNode.hidden && $('nanReuseMirrors').checked, usePython: $('nanTool').value === 'choose' && $('nanUsePython').checked,
         uiProfile: $('nanUiProfile').value.trim(),

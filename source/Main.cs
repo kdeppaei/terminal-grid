@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -16,7 +17,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 [assembly: System.Reflection.AssemblyTitle("Terminal Grid Integrated")]
 [assembly: System.Reflection.AssemblyDescription("Interactive embedded CMD and PowerShell terminal grid")]
-[assembly: System.Reflection.AssemblyVersion("3.20.4.0")]
+[assembly: System.Reflection.AssemblyVersion("3.20.5.0")]
 
 namespace TerminalGridIntegrated
 {
@@ -234,6 +235,7 @@ namespace TerminalGridIntegrated
                 if (type == "flowOpen") { Ui(OpenFlow); return; }
                 if (type == "flowSave") { Ui(delegate { SaveFlow(StringValue(message, "text")); }); return; }
                 if (type == "androidApps" || type == "androidLaunch" || type == "androidMirror" || type == "androidWake") { RunAndroidAction(type, message); return; }
+                if (type == "nanCheck") { RunNanCheck(message); return; }
                 if (type == "browseAndroidPath") { BrowseAndroidPath(message); return; }
                 if (type == "runSave") { SaveRun(StringValue(message, "runId"), StringValue(message, "text")); return; }
                 if (type == "exportLog") { Ui(delegate { ExportLog(StringValue(message, "text")); }); return; }
@@ -340,6 +342,48 @@ namespace TerminalGridIntegrated
             catch (Exception ex) { Status("操作未完成：" + ex.Message); }
         }
         bool targetDiscoveryBusy;
+        bool nanCheckBusy;
+        void RunNanCheck(IDictionary<string, object> message)
+        {
+            string requestId = StringValue(message, "requestId"), serial = StringValue(message, "serial");
+            if (requestId.Length == 0 || requestId.Length > 100) return;
+            if (nanCheckBusy) { Send(new { type = "nanCheckResult", requestId = requestId, error = "已有單機預檢進行中。" }); return; }
+            string folder = StringValue(message, "toolsFolder"), profile = StringValue(message, "profile"), python = StringValue(message, "python");
+            nanCheckBusy = true;
+            Task.Run(delegate {
+                string report = "", error = null;
+                try {
+                    if (!AndroidLaunch.ValidSerial(serial)) throw new ArgumentException("請選擇已授權的 USB 手機。");
+                    if (folder.Length > 4096 || profile.Length > 4096 || python.Length > 4096) throw new ArgumentException("路徑過長。");
+                    var targets = TargetDiscovery.Discover(folder);
+                    if (!targets.candidates.Any(c => c.kind == "device" && c.usb && c.value == serial))
+                        throw new InvalidOperationException("指定手機已離線或 USB 偵錯未授權。請重新偵測。");
+                    string exe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TerminalGridNan.exe");
+                    var args = new[] { "--mode", "ui-check", "--dut1", serial, "--folder", Path.GetDirectoryName(targets.adbPath), "--profile", profile, "--python", python };
+                    var info = new ProcessStartInfo(exe, String.Join(" ", args.Select(ShellBuilder.Quote))) {
+                        UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                        StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
+                    };
+                    using (var process = Process.Start(info)) {
+                        var output = process.StandardOutput.ReadToEndAsync();
+                        var errors = process.StandardError.ReadToEndAsync();
+                        if (!process.WaitForExit(20000)) {
+                            try { process.Kill(); } catch (InvalidOperationException) { }
+                            throw new TimeoutException("單機預檢逾時。請確認 Python 與 USB 偵錯授權。");
+                        }
+                        if (!Task.WaitAll(new Task[] { output, errors }, 1500)) throw new TimeoutException("預檢結果讀取逾時。");
+                        report = output.Result.Trim();
+                        if (process.ExitCode != 0) error = errors.Result.Trim();
+                        if (process.ExitCode != 0 && String.IsNullOrEmpty(error)) error = "無法啟動預檢。請指定 Python 3.9+ 的 python.exe。";
+                    }
+                } catch (Exception ex) { error = ex.Message; }
+                Ui(delegate {
+                    nanCheckBusy = false;
+                    Send(new { type = "nanCheckResult", requestId = requestId, report = report.Substring(0, Math.Min(1000, report.Length)),
+                        error = error == null ? null : error.Substring(0, Math.Min(1000, error.Length)) });
+                });
+            });
+        }
         void BrowseAndroidPath(IDictionary<string, object> message)
         {
             string id = StringValue(message, "requestId"), serial = StringValue(message, "serial");

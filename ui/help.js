@@ -1,9 +1,10 @@
 (function (root) {
   'use strict';
   var guide = {
-    version: '3.20.4', updated: '2026-11-21',
+    version: '3.20.5', updated: '2026-11-24',
     sections: [
       { name: '本版更新', paragraphs: [
+        ['NAN 單機預檢', '從「NAN＋Ping」或 NAN 精靈選本機 JSON，再按「單機預檢」。一台已授權 USB 手機即可核對 Python、設定檔、App 啟動元件與目前畫面。預檢只讀取手機，雙機流程需接上兩台才能執行。'],
         ['一鍵 NAN＋Ping', '主畫面按「NAN＋Ping」。初次選兩台 USB 手機和本機 App 操作設定檔後儲存。再次點擊會檢查指定雙機、依設定建立 NAN 與 NDP，並讓 DUT2 持續 Ping。已在 Ping 時會回到該分頁，按 Ctrl+C 可停止。'],
         ['以畫面狀態防止重複切換', 'App 設定檔可用 text-glob 比對包含動態值的文字。以 unless 辨識已就緒，略過重複按開關，再用 wait 確認狀態。'],
         ['喚醒與多台鏡像', '「更多 → 手機控制／scrcpy」可選一台直接喚醒或開啟。展開「多台手機」勾選裝置，即可批次喚醒或開啟鏡像，並查看執行結果。Python 在 NAN 與 NDP 自動操作的開頭會先喚醒雙機。手機有鎖定時仍需解鎖。'],

@@ -68,6 +68,41 @@ def adb_query(adb, serial, role, command):
     return result.stdout
 
 
+def full_component(value):
+    package, activity = value.split("/", 1)
+    return package + "/" + (package + activity if activity.startswith(".") else activity)
+
+
+def check_device(adb, serial, profile):
+    output = adb_query(adb, serial, "DUT", "cmd package query-activities --components --user current "
+                       "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER")
+    available = {full_component(line.strip()) for line in output.splitlines() if COMPONENT.fullmatch(line.strip())}
+    for phase in ("nan", "ndp"):
+        launches = [step["launch"] for step in profile[phase] if "launch" in step]
+        for component in launches:
+            if full_component(component) not in available:
+                raise SetupError(f"{phase.upper()}: 找不到可啟動的 App 元件 {component}。")
+        print(f"{phase.upper()}：已確認 {len(set(launches))} 個 App 啟動元件。", flush=True)
+    try:
+        tree = hierarchy(adb, serial, "DUT")
+    except (SetupError, VerificationError, ElementTree.ParseError):
+        raise SetupError("無法讀取目前手機畫面。請先喚醒、解鎖，再重新檢查。") from None
+    if tree.tag != "hierarchy" or not len(tree):
+        raise SetupError("手機畫面沒有可讀的控制項。請先喚醒、解鎖，再重新檢查。")
+    matches = []
+    for phase in ("nan", "ndp"):
+        for index, step in enumerate(profile[phase], 1):
+            package = step.get("package")
+            if not package:
+                continue
+            if any(nodes_for(tree, package, step[key]) for key in ("tap", "unless", "wait") if key in step):
+                matches.append(f"{phase.upper()} 第 {index} 步")
+    if matches:
+        print("目前畫面符合設定中的控制項或狀態：" + "、".join(matches) + "。", flush=True)
+    else:
+        print("目前畫面可讀。切到測試 App 的對應頁面再檢查控制項。", flush=True)
+
+
 def hierarchy(adb, serial, role):
     path = "/data/local/tmp/tgrid-ui-" + uuid4().hex + ".xml"
     result = adb_query(adb, serial, role, f"uiautomator dump {path} >/dev/null && cat {path}; status=$?; rm -f {path}; exit $status")
@@ -181,16 +216,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adb", required=True)
     parser.add_argument("--dut1", required=True, type=serial_argument)
-    parser.add_argument("--dut2", required=True, type=serial_argument)
+    parser.add_argument("--dut2", type=serial_argument)
     parser.add_argument("--if1", default="auto", type=interface_argument)
     parser.add_argument("--if2", default="auto", type=interface_argument)
-    parser.add_argument("--phase", required=True, choices=("nan", "ndp"))
+    parser.add_argument("--phase", required=True, choices=("nan", "ndp", "check"))
     parser.add_argument("--profile", required=True)
     options = parser.parse_args()
-    if options.dut1.casefold() == options.dut2.casefold():
+    if options.phase != "check" and not options.dut2:
+        parser.error("--dut2 is required for NAN and NDP.")
+    if options.dut2 and options.dut1.casefold() == options.dut2.casefold():
         parser.error("DUT1 and DUT2 must be different.")
     try:
         profile = load_profile(options.profile)
+        if options.phase == "check":
+            check_device(options.adb, options.dut1, profile)
+            return 0
         execute_phase(options, profile[options.phase])
     except (VerificationError, SetupError, OSError, ValueError) as error:
         print(f"NAN UI: {error}", file=sys.stderr, flush=True)
