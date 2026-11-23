@@ -1,4 +1,6 @@
 import sys
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
@@ -80,15 +82,18 @@ def test():
         assert nan_setup.resolve_action("test", "FIXTURE_A", "DUT1", guard) == (40, 30)
     launcher_output = ("org.example.nanlab/org.example.nanlab.MainActivity\n"
                        "org.example.awarelab/.MainActivity\n")
+    report = StringIO()
     with patch.object(nan_setup, "adb_query", return_value=launcher_output) as inspect_apps, \
-            patch.object(nan_setup, "hierarchy", return_value=screen(["Start BLE"])) as inspect_screen:
+            patch.object(nan_setup, "hierarchy", return_value=screen(["Start BLE"])) as inspect_screen, \
+            redirect_stdout(report):
         nan_setup.check_device("test", "FIXTURE_A", profile)
         inspect_apps.assert_called_once()
         assert inspect_apps.call_args.args[1] == "FIXTURE_A"
         assert inspect_apps.call_args.args[3].startswith("cmd package query-activities")
         inspect_screen.assert_called_once_with("test", "FIXTURE_A", "DUT")
+    assert "NDP 第 2 步" in report.getvalue()
     with patch.object(nan_setup, "adb_query", return_value="org.example.nanlab/.MainActivity"), \
-            patch.object(nan_setup, "hierarchy") as inspect_screen:
+            patch.object(nan_setup, "hierarchy") as inspect_screen, redirect_stdout(StringIO()):
         try:
             nan_setup.check_device("test", "FIXTURE_A", profile)
         except nan_setup.SetupError as error:
